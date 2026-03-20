@@ -1,224 +1,116 @@
-from typing import Union, Optional, Dict
+from typing import Union, Optional, Dict, Any
 from datetime import date, datetime, time, timedelta
 from pydantic import BaseModel
+from enum import Enum
 
 
-class RunCategoryBase(BaseModel):
-    run_num: int
-    name: str
+class ShiftEnum(str, Enum):
+    A = 'A'
+    B = 'B'
+    C = 'C'
+    ALL_SHIFT = 'ALL_SHIFT'
 
 
-class RunCategory(RunCategoryBase):
-    run_id: int
-
-    class Config:
-        orm_mode = True
-
-
-class StopCategoryBase(BaseModel):
-    stop_num: int
-    name: str
-
-
-class StopCategory(StopCategoryBase):
-    stop_id: int
-
-    class Config:
-        orm_mode = True
-
-
-class OperatorListBase(BaseModel):
-    operator_num: int
-    name: str
-
-    class Config:
-        orm_mode = True
-
-
-class OperatorList(OperatorListBase):
-    operator_id: int
-
-    class Config:
-        orm_mode = True
-
-
-class RunDataBase(BaseModel):
-    machine: str
-    run_data_id: int
-    date_: date
-    shift: str
-    time_: datetime
-    start_time: datetime
-    stop_time: Union[datetime, None] = None
-    duration: Union[int, None] = None
-    meters: float = 0
-    energy_start: float = 0
-    energy_stop: Union[float, None] = None
-    fluid_total: float = 0
-    air_total: float = 0
-    water_total: float = 0
-    steam_total: Optional[float] = 0
-    run_category: Union[str, None] = None
-    operator_name: Union[str, None] = None
-    po_number: Union[str, None] = None
-    operation_name: Optional[str] = None
-
-
-class RunDataCreate(RunDataBase):
-    pass
-
-
-class RunDataUpdate(BaseModel):
-    machine: str
-    run_data_id: int
-    time_: datetime
-    stop_time: Optional[datetime] = None
-    duration: Optional[int] = None
-    meters: Optional[float] = None
-    energy_stop: Optional[float] = None
-    fluid_total: Optional[float] = None
-    air_total: Optional[float] = None
-    water_total: Optional[float] = None
-    steam_total: Optional[float] = None
-
-    class Config:
-        orm_mode = True
-
-
-class RunData(RunDataBase):
-    id: int
-
-    class Config:
-        orm_mode = True
-
-
-class RunDataByPO(BaseModel):
-    date_: date
-    end_time: datetime
-    machine: str
+class RunPoBase(BaseModel):
+    machine_name: str
     po_number: str
-    shift: str
-    production: Union[float, None] = 0
-
-    class Config:
-        orm_mode = True
-
-
-class StopDataBase(BaseModel):
-    machine: str
-    stop_data_id: int
-    date_: date
-    shift: str
-    time_: datetime
-    start_time: datetime
-    stop_time: Union[datetime, None] = None
-    duration: Union[int, None] = None
-    energy_start: float
-    energy_stop: Union[float, None] = None
-    fluid_total: float = 0
-    air_total: float = 0
-    water_total: float = 0
-    steam_total: Optional[float] = 0
-    stop_category: Union[str, None] = None
-    operator_name: Union[str, None] = None
-    po_number: Union[str, None] = None
-
-
-class StopDataCreate(StopDataBase):
-    pass
-
-
-class StopDataUpdate(BaseModel):
-    machine: str
-    stop_data_id: int
-    time_: datetime
-    stop_time: Optional[datetime] = None
-    duration: Optional[int] = None
-    energy_stop: Optional[float] = None
-    fluid_total: Optional[float] = None
-    air_total: Optional[float] = None
-    water_total: Optional[float] = None
-    steam_total: Optional[float] = None
-
-    class Config:
-        orm_mode = True
-
-
-class StopDataByCategory(BaseModel):
-    machine: str
-    stop_category: str
-    duration_sum: Union[int, None] = 0
-    stoppage_count: int = 0
-
-    class Config:
-        orm_mode = True
-
-
-class StopData(StopDataBase):
-    id: int
-
-    class Config:
-        orm_mode = True
-
-
-class NowProduction(BaseModel):
-    production: list
-
-    class Config:
-        orm_mode = True
-
-
-class NowStoppage(BaseModel):
-    stoppage: list
-
-    class Config:
-        orm_mode = True
-
-
-class PoDataBase(BaseModel):
-    po_id: int
-    po_number: Union[str, None] = None
-    article: str
-    greige_glm: float
-    finish_glm: float
-    construction: str
-    hmi_data: Dict = {}
-    machine: str
-    plant_name: str
-
-
-class PoDataCreate(PoDataBase):
-    pass
-
-
-class PoData(PoDataBase):
-    id: int
-
-    class Config:
-        orm_mode = True
-
-
-##..............................................................................
-
-
-class EmailListBase(BaseModel):
-    email_id_list: str
-
-
-class EmailListCreate(BaseModel):
     section: str
-    email_id_list: list[EmailListBase]
+    category: str
+    operation: str
+    target_length: float
+    target_unit: str
+    machine_speed: float
+    machine_speed_unit: str
+    operator_name: Optional[str | None] = None
+    additional_data: Optional[Dict[str, Any] | None] = None
 
 
-class EmailList(EmailListBase):
-    id: int
+from pydantic import BaseModel, Field
 
 
-class EmailListUpdate(BaseModel):
-    email_id_list: Optional[list[str]]
+class RawDataBase(BaseModel):
+    machine_name: str
+    time_: datetime
+    normal_data: Dict[str, Any] = Field(default_factory=dict, alias="raw_data")
 
     class Config:
-        orm_mode = True
+        populate_by_name = True
+
+
+class ShiftMasterBase(BaseModel):
+    shift_a_start: Optional[datetime] = None
+    shift_b_start: Optional[datetime] = None
+    shift_c_start: Optional[datetime] = None
+    shift_a_end: Optional[datetime] = None
+    shift_b_end: Optional[datetime] = None
+    shift_c_end: Optional[datetime] = None
+
+
+class PlannedBreakDataBase(BaseModel):
+    shift_a_planned_break: Dict = {}
+    shift_b_planned_break: Dict = {}
+    shift_c_planned_break: Dict = {}
+    shift_g_planned_break: Dict = {}
+    line: str
+    machine_name: str
+
+
+class PlannedBreakDataCreate(PlannedBreakDataBase):
+    pass
+
+
+class PlannedBreakDataUpdate(BaseModel):
+    shift_a_planned_break: Optional[Dict] = None
+    shift_b_planned_break: Optional[Dict] = None
+    shift_c_planned_break: Optional[Dict] = None
+    shift_g_planned_break: Optional[Dict] = None
+    line: Optional[str] = None
+    machine_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PlannedBreakData(PlannedBreakDataBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class OperationMasterBase(BaseModel):
+    category: str
+    operation: str
+
+
+class OperationMasterCreate(OperationMasterBase):
+    pass
+
+
+class OperationMaster(OperationMasterBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class TargetRecordCreate(BaseModel):
+    target: float
+    line: str
+    machine: str
+
+
+class TableRecordResponse(TargetRecordCreate):
+    id: int
+    shift: str
+    date_: date
+    time_: datetime
+
+
+class MachineLatestTarget(BaseModel):
+    machine: str
+    target: float
+    line: str
 
     class Config:
         from_attributes = True
