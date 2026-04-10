@@ -48,45 +48,9 @@ async def get_shift_details_data(db: Session = Depends(get_db)):
     return await get_shift_details(db=db)
 
 
-#@router.get("/get_current_shift_data/")
-#async def get_current_shift_data(db: Session = Depends(get_db)):
-#    current_shift_data = db.query(models.ShiftMaster).order_by(models.ShiftMaster.id.desc()).first()
-#
-#    if not current_shift_data:
-#        return {"shift": "No_shift_data", "time_": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
-#
-#    now = (datetime.utcnow() + timedelta(hours=5, minutes=30)).time()
-#
-#    if current_shift_data.shift_a_start and current_shift_data.shift_a_end:
-#        shiftAStart = current_shift_data.shift_a_start.time()
-#        shiftAEnd = current_shift_data.shift_a_end.time()
-#        if shiftAStart <= now < shiftAEnd:
-#            shift = 'A'
-#        else:
-#            shift = None
-#    else:
-#        shift = None
-#
-#    if not shift and current_shift_data.shift_b_start and current_shift_data.shift_b_end:
-#        shiftBStart = current_shift_data.shift_b_start.time()
-#        shiftBEnd = current_shift_data.shift_b_end.time()
-#        if shiftBStart <= now or now < shiftBEnd:
-#            shift = 'B'
-#
-#    if not shift and current_shift_data.shift_c_start and current_shift_data.shift_c_end:
-#        shiftCStart = current_shift_data.shift_c_start.time()
-#        shiftCEnd = current_shift_data.shift_c_end.time()
-#        if shiftCStart <= now < shiftCEnd:
-#            shift = 'C'
-#
-#    if not shift:
-#        shift = "No_shift_data"
-#
-#    time_ = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
-#    log.info(f"[-] shift : {shift} and time_ : {time_}")
-#    return {"shift": shift, "time_": time_}
-@router.get("/get_current_shift_data/")
-async def get_current_shift_data(db: Session = Depends(get_db)):
+
+#@router.get("/get_current_shift_data_old/")
+async def get_current_shift_data_old(db: Session = Depends(get_db)):
     current_shift_data = db.query(models.ShiftMaster).order_by(models.ShiftMaster.id.desc()).first()
 
     if not current_shift_data:
@@ -131,6 +95,92 @@ async def get_current_shift_data(db: Session = Depends(get_db)):
     log.info(f"[-] shift : {shift} and time_ : {time_}")
     return {"shift": shift, "time_": time_}
 
+# ? Helper Function (Handles both normal + cross-midnight)
+def is_in_shift(start, end, now):
+    """
+    Check if current time falls within a shift.
+    Handles both:
+    - Normal shifts (e.g., 08:00 ? 16:00)
+    - Cross-midnight shifts (e.g., 16:00 ? 00:00)
+    """
+    if start < end:
+        return start <= now < end
+    else:
+        return now >= start or now < end
+
+
+@router.get("/get_current_shift_data/")
+async def get_current_shift_data(db: Session = Depends(get_db)):
+    try:
+        # ? Get latest shift configuration
+        current_shift_data = (
+            db.query(models.ShiftMaster)
+            .order_by(models.ShiftMaster.id.desc())
+            .first()
+        )
+
+        if not current_shift_data:
+            return {
+                "shift": "No_shift_data",
+                "time_": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+        # ? Convert UTC ? IST
+        now_utc = datetime.utcnow()
+        now_ist = now_utc + timedelta(hours=5, minutes=30)
+        now_time = now_ist.time()
+
+        shift = None
+
+        # ---------------- SHIFT A ----------------
+        if current_shift_data.shift_a_start and current_shift_data.shift_a_end:
+            a_start = current_shift_data.shift_a_start.time()
+            a_end = current_shift_data.shift_a_end.time()
+
+            if is_in_shift(a_start, a_end, now_time):
+                shift = "A"
+
+        # ---------------- SHIFT B ----------------
+        if not shift and current_shift_data.shift_b_start and current_shift_data.shift_b_end:
+            b_start = current_shift_data.shift_b_start.time()
+            b_end = current_shift_data.shift_b_end.time()
+
+            if is_in_shift(b_start, b_end, now_time):
+                shift = "B"
+
+        # ---------------- SHIFT C ----------------
+        if not shift and current_shift_data.shift_c_start and current_shift_data.shift_c_end:
+            c_start = current_shift_data.shift_c_start.time()
+            c_end = current_shift_data.shift_c_end.time()
+
+            if is_in_shift(c_start, c_end, now_time):
+                shift = "C"
+
+        # ? Default fallback
+        if not shift:
+            shift = "No_shift_data"
+
+        # ? Logging (VERY useful for debugging)
+        log.info(
+            f"[SHIFT CHECK] "
+            f"A: {current_shift_data.shift_a_start} - {current_shift_data.shift_a_end}, "
+            f"B: {current_shift_data.shift_b_start} - {current_shift_data.shift_b_end}, "
+            f"C: {current_shift_data.shift_c_start} - {current_shift_data.shift_c_end}, "
+            f"NOW: {now_time}, RESULT: {shift}"
+        )
+
+        return {
+            "shift": shift,
+            "time_": now_ist.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    except Exception as e:
+        log.error(f"[ERROR] get_current_shift_data: {str(e)}")
+        return {
+            "shift": "Error",
+            "time_": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "message": str(e)
+        }
 
 @router.delete("/delete_shift/")
 async def delete_shift(shift: str, db: Session = Depends(get_db)):

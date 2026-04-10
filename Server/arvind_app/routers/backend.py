@@ -71,7 +71,12 @@ async def stop_po(machine_name: str, is_partial_gr: bool = False, db: Session = 
     # update stop time and duration
     db_present_po = db.get(models.PoData, current_po.id)
     stop_time = datetime.now(IST)
-    duration = (stop_time - db_present_po.start_time).total_seconds()
+    start_time = db_present_po.start_time
+    if start_time.tzinfo is None:
+        start_time = IST.localize(start_time)
+    else:
+        start_time = start_time.astimezone(IST)
+    duration = (stop_time - start_time).total_seconds()
     setattr(db_present_po, "stop_time", stop_time)
     setattr(db_present_po, "duration", duration)
     setattr(db_present_po, "is_complete", True)
