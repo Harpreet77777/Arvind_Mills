@@ -160,15 +160,6 @@ async def get_current_shift_data(db: Session = Depends(get_db)):
         if not shift:
             shift = "No_shift_data"
 
-        # ? Logging (VERY useful for debugging)
-        log.info(
-            f"[SHIFT CHECK] "
-            f"A: {current_shift_data.shift_a_start} - {current_shift_data.shift_a_end}, "
-            f"B: {current_shift_data.shift_b_start} - {current_shift_data.shift_b_end}, "
-            f"C: {current_shift_data.shift_c_start} - {current_shift_data.shift_c_end}, "
-            f"NOW: {now_time}, RESULT: {shift}"
-        )
-
         return {
             "shift": shift,
             "time_": now_ist.strftime("%Y-%m-%d %H:%M:%S")
@@ -346,7 +337,6 @@ async def get_shift_details(db: Session):
             shift_data["shift_c_end"] = current_shift_data.shift_c_end.strftime("%H:%M:%S")
 
         if shift_data:
-            log.info("shift_data", shift_data)
             return shift_data
         else:
             return {"message": "No valid shift times available."}

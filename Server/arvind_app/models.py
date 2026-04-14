@@ -92,3 +92,31 @@ class TargetRecord(Base):
     line = Column(String)
     shift = Column(String)
     machine = Column(String)
+
+# ............................Breakdown..........................
+class BreakdownData(Base):
+    __tablename__ = "breakdown_data"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date_ = Column(Date)
+    shift = Column(String)
+    machine_name = Column(String)
+    line = Column(String)
+    start_time = Column(DateTime)
+    stop_time = Column(DateTime, nullable=True)
+    duration = Column(Integer)
+    category = Column(String, nullable=True)
+    reason = Column(String, nullable=True)
+
+class Quality(Base):
+    __tablename__ = "quality"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date_ = Column(Date)
+    shift = Column(String)
+    machine_name = Column(String)
+    line = Column(String)
+    po_number = Column(VARCHAR(50), nullable=True)
+    key = Column(String,nullable=False)
+    value = Column(Float(50))
+    value_unit = Column(VARCHAR(50))

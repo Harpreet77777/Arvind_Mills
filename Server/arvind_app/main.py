@@ -4,7 +4,7 @@ from . import crud, models, schemas
 from .database import SessionLocal, engine
 
 import logging
-from .routers import (backend, planned_break, shift_data, operation_master, target)
+from .routers import (backend, planned_break, shift_data, operation_master, target,breakdown,oee,quality_analysis)
 
 log = logging.getLogger("uvicorn")
 log.setLevel(logging.INFO)
@@ -40,3 +40,6 @@ app.include_router(planned_break.router)
 app.include_router(shift_data.router)
 app.include_router(operation_master.router)
 app.include_router(target.router)
+app.include_router(breakdown.router)
+app.include_router(oee.router)
+app.include_router(quality_analysis.router)

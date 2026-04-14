@@ -114,3 +114,48 @@ class MachineLatestTarget(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ......................................Breakdown..............................
+class BreakdownDataBase(BaseModel):
+    machine_name: str
+    line: str
+    reason: Optional[str] = None
+    category: Optional[str] = None
+
+
+class BreakdownDataUpdate(BaseModel):
+    reason: Optional[str] = None
+
+
+class BreakdownData(BreakdownDataBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class BreakdownDataResponse(BaseModel):
+    id: int
+    date_: date
+    line: str
+    shift: str
+    machine_name: str
+    reason: str | None
+    duration: int | None
+    category: str | None
+    stop_time: datetime | None
+    start_time: datetime
+
+class QualityCreate(BaseModel):
+    machine_name: str
+    line :str
+    po_number: str
+    key : str
+    value :str
+    value_unit:str
+
+class OEEGetPayload(BaseModel):
+    date_: date
+    shift: ShiftEnum
+    line: str
+    machine: str
