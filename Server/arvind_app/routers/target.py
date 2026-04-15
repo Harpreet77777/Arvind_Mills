@@ -32,11 +32,13 @@ router = APIRouter(tags=["Target"])
 @router.post("/create_target/", response_model=schemas.TableRecordResponse)
 async def create_target(target: float, line: str, machine: str, db: Session = Depends(get_db)):
     shift_data = await get_shift_details_data(db=db)
-    date_ = await calculate_adjusted_date(shift_data["shift_a_start"], datetime.now(IST))
+    date_ = await calculate_adjusted_date(shift_data["shift_a_start"],
+                                          datetime.utcnow() + timedelta(hours=5, minutes=30))
     shift = await get_current_shift_data(db=db)
 
     # Create and store DB entry
-    db_entry = models.TargetRecord(date_=date_, time_=datetime.now(IST), shift=shift['shift'],
+    db_entry = models.TargetRecord(date_=date_, time_=datetime.utcnow() + timedelta(hours=5, minutes=30),
+                                   shift=shift['shift'],
                                    line=line, target=target, machine=machine)
     db.add(db_entry)
     db.commit()

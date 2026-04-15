@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from ..routers.shift_data import get_current_shift_data, get_shift_details_data, calculate_adjusted_date
 from .. import crud, models, schemas
 from ..database import SessionLocal, engine
@@ -34,17 +34,19 @@ router = APIRouter(tags=["Backend"])
 async def start_po(po_data: schemas.RunPoBase, db: Session = Depends(get_db)):
     # check if prev po is running then show error
     prv_po = db.query(models.PoData).filter(models.PoData.machine_name == po_data.machine_name,
-                                                    models.PoData.stop_time.is_(None)).order_by(
+                                            models.PoData.stop_time.is_(None)).order_by(
         models.PoData.id.desc()).first()
     if prv_po:
         raise HTTPException(status_code=403, detail="Previous Po is running please stop or complete to start new PO")
 
     shift_data = await get_shift_details_data(db=db)
-    date_ = await calculate_adjusted_date(shift_data["shift_a_start"], datetime.now(IST))
+    date_ = await calculate_adjusted_date(shift_data["shift_a_start"],
+                                          datetime.utcnow() + timedelta(hours=5, minutes=30))
     shift = await get_current_shift_data(db=db)
 
     db_po = models.PoData(**po_data.dict(),
-                          date_=date_, shift=shift['shift'], start_time=datetime.now(IST), po_uuid=uuid.uuid4()
+                          date_=date_, shift=shift['shift'],
+                          start_time=datetime.utcnow() + timedelta(hours=5, minutes=30), po_uuid=uuid.uuid4()
                           )
     db.add(db_po)
     db.commit()
@@ -55,7 +57,7 @@ async def start_po(po_data: schemas.RunPoBase, db: Session = Depends(get_db)):
 @router.get("/{machine_name}")
 async def get_current_po(machine_name: str, db: Session = Depends(get_db)):
     return db.query(models.PoData).filter(models.PoData.machine_name == machine_name,
-                                                  models.PoData.stop_time.is_(None)).order_by(
+                                          models.PoData.stop_time.is_(None)).order_by(
         models.PoData.id.desc()).first()
 
 
@@ -63,19 +65,19 @@ async def get_current_po(machine_name: str, db: Session = Depends(get_db)):
 async def stop_po(machine_name: str, is_partial_gr: bool = False, db: Session = Depends(get_db)):
     # check no po is running then show error
     current_po = db.query(models.PoData).filter(models.PoData.machine_name == machine_name,
-                                                        models.PoData.stop_time.is_(None)).order_by(
+                                                models.PoData.stop_time.is_(None)).order_by(
         models.PoData.id.desc()).first()
     if not current_po:
         raise HTTPException(status_code=403, detail="No Po is running on this machine")
 
     # update stop time and duration
     db_present_po = db.get(models.PoData, current_po.id)
-    stop_time = datetime.now(IST)
+    stop_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
     start_time = db_present_po.start_time
-    if start_time.tzinfo is None:
-        start_time = IST.localize(start_time)
-    else:
-        start_time = start_time.astimezone(IST)
+    # if start_time.tzinfo is None:
+    #     start_time = IST.localize(start_time)
+    # else:
+    #     start_time = start_time.astimezone(IST)
     duration = (stop_time - start_time).total_seconds()
     setattr(db_present_po, "stop_time", stop_time)
     setattr(db_present_po, "duration", duration)
@@ -95,37 +97,66 @@ def _to_ist(dt: datetime) -> datetime:
     return dt.astimezone(IST)
 
 
-def _get_shift_for_time(db: Session, dt: datetime) -> str:
-    shift_cfg = db.query(models.ShiftMaster).order_by(models.ShiftMaster.id.desc()).first()
-    if not shift_cfg:
+def is_in_shift(start, end, now):
+    """
+    Check if current time falls within a shift.
+    Handles both:
+    - Normal shifts (e.g., 08:00 ? 16:00)
+    - Cross-midnight shifts (e.g., 16:00 ? 00:00)
+    """
+    if start < end:
+        return start <= now < end
+    else:
+        return now >= start or now < end
+
+
+def _get_shift_for_time(db: Session, dt: datetime):
+    # ? Get latest shift configuration
+    current_shift_data = (
+        db.query(models.ShiftMaster)
+        .order_by(models.ShiftMaster.id.desc())
+        .first()
+    )
+
+    if not current_shift_data:
         return "No_shift_data"
 
-    dt_ist = _to_ist(dt)
-    now_time = dt_ist.time()
+    # ? Convert UTC ? IST
+    now_utc = datetime.utcnow()
+    now_ist = dt
+    now_time = now_ist.time()
 
-    # SHIFT A
-    if shift_cfg.shift_a_start and shift_cfg.shift_a_end:
-        if shift_cfg.shift_a_start.time() <= now_time < shift_cfg.shift_a_end.time():
-            return "A"
+    shift = None
 
-    # SHIFT B
-    if shift_cfg.shift_b_start and shift_cfg.shift_b_end:
-        if shift_cfg.shift_b_start.time() <= now_time < shift_cfg.shift_b_end.time():
-            return "B"
+    # ---------------- SHIFT A ----------------
+    if current_shift_data.shift_a_start and current_shift_data.shift_a_end:
+        a_start = current_shift_data.shift_a_start.time()
+        a_end = current_shift_data.shift_a_end.time()
 
-    # SHIFT C (allows cross-midnight)
-    if shift_cfg.shift_c_start and shift_cfg.shift_c_end:
-        c_start = shift_cfg.shift_c_start.time()
-        c_end = shift_cfg.shift_c_end.time()
-        if c_start <= c_end:
-            if c_start <= now_time < c_end:
-                return "C"
-        else:
-            # cross midnight
-            if now_time >= c_start or now_time < c_end:
-                return "C"
+        if is_in_shift(a_start, a_end, now_time):
+            shift = "A"
 
-    return "No_shift_data"
+    # ---------------- SHIFT B ----------------
+    if not shift and current_shift_data.shift_b_start and current_shift_data.shift_b_end:
+        b_start = current_shift_data.shift_b_start.time()
+        b_end = current_shift_data.shift_b_end.time()
+
+        if is_in_shift(b_start, b_end, now_time):
+            shift = "B"
+
+    # ---------------- SHIFT C ----------------
+    if not shift and current_shift_data.shift_c_start and current_shift_data.shift_c_end:
+        c_start = current_shift_data.shift_c_start.time()
+        c_end = current_shift_data.shift_c_end.time()
+
+        if is_in_shift(c_start, c_end, now_time):
+            shift = "C"
+
+    # ? Default fallback
+    if not shift:
+        shift = "No_shift_data"
+
+    return shift
 
 
 @router.post("/send_data/")
@@ -141,13 +172,18 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
         raise HTTPException(status_code=403, detail="No Po is running on this machine")
 
     po_uuid = current_po.po_uuid
-    dt_ist = _to_ist(raw_data.time_)
-    row_date = dt_ist.date()
+    dt_ist = raw_data.time_
+    shift_data = await get_shift_details_data(db=db)
+    row_date = await calculate_adjusted_date(shift_data["shift_a_start"],
+                                             dt_ist)
+    # row_date = dt_ist.date()
     row_hour = dt_ist.hour
     row_shift = _get_shift_for_time(db=db, dt=raw_data.time_)
+    print(row_shift, row_hour, row_date, dt_ist)
+    # No_shift_data 16 2026 - 04 - 09 2026 - 04 - 09 16: 59:51.889000 + 05: 30
 
     changed = []
-    now = datetime.now(IST)
+    now = datetime.utcnow() + timedelta(hours=5, minutes=30)
 
     for key, value in raw_values.items():
         try:
@@ -303,3 +339,8 @@ async def get_current_po_parameter(machine_name: str, db: Session = Depends(get_
         "keys": len(result_data),
         "data": result_data,
     }
+
+
+@router.get("/get_shift_by_time/")
+async def get_shift_by_time(dt: datetime, db: Session = Depends(get_db)):
+    return _get_shift_for_time(db=db, dt=dt)
