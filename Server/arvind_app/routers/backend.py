@@ -2,7 +2,8 @@ from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
-from datetime import date, datetime, timedelta
+from sqlalchemy import cast, Time, or_, and_
+from datetime import date, datetime, timedelta, time
 from ..routers.shift_data import get_current_shift_data, get_shift_details_data, calculate_adjusted_date
 from .. import crud, models, schemas
 from ..database import SessionLocal, engine
@@ -120,43 +121,6 @@ def _get_shift_for_time(db: Session, dt: datetime):
 
     if not current_shift_data:
         return "No_shift_data"
-
-    # ? Convert UTC ? IST
-    now_utc = datetime.utcnow()
-    now_ist = dt
-    now_time = now_ist.time()
-
-    shift = None
-
-    # ---------------- SHIFT A ----------------
-    if current_shift_data.shift_a_start and current_shift_data.shift_a_end:
-        a_start = current_shift_data.shift_a_start.time()
-        a_end = current_shift_data.shift_a_end.time()
-
-        if is_in_shift(a_start, a_end, now_time):
-            shift = "A"
-
-    # ---------------- SHIFT B ----------------
-    if not shift and current_shift_data.shift_b_start and current_shift_data.shift_b_end:
-        b_start = current_shift_data.shift_b_start.time()
-        b_end = current_shift_data.shift_b_end.time()
-
-        if is_in_shift(b_start, b_end, now_time):
-            shift = "B"
-
-    # ---------------- SHIFT C ----------------
-    if not shift and current_shift_data.shift_c_start and current_shift_data.shift_c_end:
-        c_start = current_shift_data.shift_c_start.time()
-        c_end = current_shift_data.shift_c_end.time()
-
-        if is_in_shift(c_start, c_end, now_time):
-            shift = "C"
-
-    # ? Default fallback
-    if not shift:
-        shift = "No_shift_data"
-
-    return shift
 
 
 @router.post("/send_data/")
@@ -344,3 +308,27 @@ async def get_current_po_parameter(machine_name: str, db: Session = Depends(get_
 @router.get("/get_shift_by_time/")
 async def get_shift_by_time(dt: datetime, db: Session = Depends(get_db)):
     return _get_shift_for_time(db=db, dt=dt)
+
+
+@router.get("/get_po_details/{time_}")
+async def get_po_according_to_time(time_: time, db: Session = Depends(get_db)):
+
+    current_time = datetime.now(IST).time()
+
+    if time_ > current_time:
+        raise HTTPException(status_code=403, detail="Time should not be in the future")
+
+    shift_data = await get_shift_details_data(db=db)
+
+    date_ = await calculate_adjusted_date(shift_data["shift_a_start"],datetime.utcnow() + timedelta(hours=5, minutes=30))
+    input_datetime = datetime.combine(date_, time_)
+
+    po_details = db.query(models.PoData).filter(models.PoData.start_time <= input_datetime,
+                                                or_(models.PoData.stop_time == None,
+                                                    models.PoData.stop_time >= input_datetime)
+                                                ).all()
+
+    if not po_details:
+        raise HTTPException(status_code=404, detail="No PO is running on this time")
+
+    return po_details
