@@ -60,9 +60,25 @@ async def create_quality(quality: schemas.QualityCreate, db: Session = Depends(g
     db.refresh(new_quality)
     return new_quality
 
+
+@router.post("/update_quality/{quality_id}")
+async def update_quality_by_id(quality_id: int, quality_update: schemas.QualityUpdate, db: Session = Depends(get_db)):
+    quality_obj = db.query(models.Quality).filter(models.Quality.id == quality_id).first()
+    if not quality_obj:
+        raise HTTPException(status_code=404, detail="Quality record not found")
+
+    for field, value in quality_update.dict(exclude_unset=True).items():
+        setattr(quality_obj, field, value)
+
+    db.commit()
+    db.refresh(quality_obj)
+    return quality_obj
+
+
+
 @router.get("/get_ng_data")
-async def get_ng_data(date_: date,shift: schemas.ShiftEnum,machine_name: str,line: str,
-    db: Session = Depends(get_db)):
+async def get_ng_data(date_: date, shift: schemas.ShiftEnum, machine_name: str, line: str,
+                      db: Session = Depends(get_db)):
     query = db.query(func.sum(models.Quality.value)).filter(models.Quality.date_ == date_,
                                                             models.Quality.machine_name == machine_name,
                                                             models.Quality.line == line,
@@ -76,9 +92,8 @@ async def get_ng_data(date_: date,shift: schemas.ShiftEnum,machine_name: str,lin
 
 
 @router.get("/calculate_quantity")
-async def calculate_quantity(date_: date,shift: schemas.ShiftEnum,machine_name: str,line: str,
-    db: Session = Depends(get_db)):
-
+async def calculate_quantity(date_: date, shift: schemas.ShiftEnum, machine_name: str, line: str,
+                             db: Session = Depends(get_db)):
     ng_data = await get_ng_data(date_, shift, machine_name, line, db)
     query = db.query(models.HourlyData).filter(models.HourlyData.machine_name == machine_name,
                                                models.HourlyData.line == line,
@@ -100,3 +115,25 @@ async def calculate_quantity(date_: date,shift: schemas.ShiftEnum,machine_name: 
         "ok": difference,
         "not_ok": ng_data["not_ok"]
     }
+
+
+@router.get("/get_quality/{from_date}/{to_date}")
+async def get_quality_data(from_date: date, to_date: date, page: int = 1, size: int = 10,
+                           db: Session = Depends(get_db)):
+    if from_date > to_date:
+        raise HTTPException(status_code=400, detail="from_date must be less than or equal to to_date")
+
+    offset = (page - 1) * size
+    return db.query(models.Quality).filter(models.Quality.date_ >= from_date,
+                                           models.Quality.date_ <= to_date).order_by(models.Quality.id.desc()).limit(
+        size).offset(offset).all()
+
+@router.delete("/delete/{id_}")
+async def delete_by_id(id_: int, db: Session = Depends(get_db)):
+    db_product = db.get(models.Quality, id_)
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Quality not found")
+    delete_data = models.Quality.__table__.delete().where(models.Quality.id == id_)
+    db.execute(delete_data)
+    db.commit()
+    return {"detail": "Data deleted successfully"}

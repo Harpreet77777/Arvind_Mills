@@ -151,8 +151,14 @@ class QualityCreate(BaseModel):
     line :str
     po_number: str
     key : str
-    value :str
+    value :float
     value_unit:str
+
+class QualityUpdate(BaseModel):
+    po_number: Optional[str] = None
+    key: Optional[str] = None
+    value: Optional[float] = None
+    value_unit: Optional[str] = None
 
 class OEEGetPayload(BaseModel):
     date_: date
