@@ -11,6 +11,9 @@ import uuid
 import pytz
 from pathlib import Path
 from fastapi import Depends, APIRouter
+import pika
+from ..config import settings
+
 
 import logging
 
@@ -332,3 +335,36 @@ async def get_po_according_to_time(time_: time, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No PO is running on this time")
 
     return po_details
+
+async def receive_message(queue_name, host=settings.HOST, port=settings.PORT, username=settings.USERNAME_,
+                          password=settings.PASSWORD):
+    credentials = pika.PlainCredentials(username, password)
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host=host, port=port, credentials=credentials))
+    channel = connection.channel()
+    channel.queue_declare(queue=queue_name, durable=True)
+
+    def callback(ch, method, properties, body):
+        print(f" [x] Received {body} ")
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+        ch.stop_consuming()
+
+    channel.basic_consume(queue=queue_name, on_message_callback=callback)
+
+    print(' [*] Waiting for messages.')
+    channel.start_consuming()
+
+
+async def send_message(body, queue_name, host=settings.HOST, port=settings.PORT, username=settings.USERNAME_,
+                       password=settings.PASSWORD):
+    credentials = pika.PlainCredentials(username, password)
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host=host, port=port, credentials=credentials))
+    channel = connection.channel()
+    channel.queue_declare(queue=queue_name, durable=True)
+    channel.basic_publish(exchange='', routing_key=queue_name, body=body, properties=pika.BasicProperties(
+        delivery_mode=pika.DeliveryMode.Persistent))
+    connection.close()
+    return {"message": f" [x] Sent '{body}' to '{queue_name}'"}
+
+@router.post('/send_message')
+async def send_message_to_machine(message: str, machine_name: str):
+    return await send_message(body=message, queue_name=machine_name)
