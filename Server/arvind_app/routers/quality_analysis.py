@@ -61,9 +61,9 @@ async def create_quality(quality: schemas.QualityCreate, db: Session = Depends(g
     return new_quality
 
 
-@router.post("/update_quality/{quality_id}")
-async def update_quality_by_id(quality_id: int, quality_update: schemas.QualityUpdate, db: Session = Depends(get_db)):
-    quality_obj = db.query(models.Quality).filter(models.Quality.id == quality_id).first()
+@router.post("/update_quality/{id_}")
+async def update_quality_by_id(id_: int, quality_update: schemas.QualityUpdate, db: Session = Depends(get_db)):
+    quality_obj = db.query(models.Quality).filter(models.Quality.id == id_).first()
     if not quality_obj:
         raise HTTPException(status_code=404, detail="Quality record not found")
 
