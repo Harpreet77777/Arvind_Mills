@@ -105,6 +105,7 @@ class BreakdownData(Base):
     start_time = Column(DateTime)
     stop_time = Column(DateTime, nullable=True)
     duration = Column(Integer)
+    breakdown_po_uuid = Column(VARCHAR(50))
     category = Column(String, nullable=True)
     reason = Column(String, nullable=True)
 

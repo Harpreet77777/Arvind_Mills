@@ -36,6 +36,7 @@ router = APIRouter(tags=["Breakdown"], prefix="/breakdown")
 
 IST = pytz.timezone('Asia/Kolkata')
 
+
 @router.get("/")
 async def get_breakdown_data(machine_name: str, line: str, page: int = 1, size: int = 10,
                              db: Session = Depends(get_db)):
@@ -59,7 +60,7 @@ async def create_breakdown(break_data: schemas.BreakdownDataBase, db: Session = 
 @router.post("/update_breakdown_data/{machine_name}/{line}")
 async def update_breakdown_data(machine_name: str, line: str,
                                 db: Session = Depends(get_db)):
-    return await update_breakdown(machine_name=machine_name, line=line,db=db)
+    return await update_breakdown(machine_name=machine_name, line=line, db=db)
 
 
 @router.delete("/{id_}/")
@@ -71,7 +72,6 @@ async def delete_breakdown_data(id_: int, db: Session = Depends(get_db)):
     db.execute(delete_data)
     db.commit()
     return {"message": "Data deleted successfully"}
-
 
 
 async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBase):
@@ -102,6 +102,15 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
             shift_breaks_dict = getattr(planned_data[0], shift_key, {})
             await validate_planned_breaks(shift_breaks_dict, start_time, break_data.category)
 
+    po_check = db.query(models.PoData).filter(models.PoData.machine_name == break_data.machine_name,
+                                              models.PoData.line == break_data.line,
+                                              models.PoData.po_uuid == break_data.breakdown_po_uuid).first()
+    if not po_check:
+        raise HTTPException(status_code=404, detail="this PO is  not found ")
+    if po_check and po_check.stop_time is not None:
+        raise HTTPException(status_code=409,
+                            detail=f"this {po_check.po_number}PO is  already finished at {po_check.stop_time} so you can't start breakdown with this PO")
+
     # Step 5: Create new breakdown record
     new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=start_time, **break_data.dict())
     db.add(new_breakdown)
@@ -110,18 +119,17 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
     return new_breakdown
 
 
-async def get_breakdown_data_by(machine_name: str ,line: str,db: Session=Depends(get_db)):
+async def get_breakdown_data_by(machine_name: str, line: str, db: Session = Depends(get_db)):
     return db.query(models.BreakdownData).filter(
         models.BreakdownData.machine_name == machine_name,
-        models.BreakdownData.line == line,models.BreakdownData.stop_time.is_(None)
+        models.BreakdownData.line == line, models.BreakdownData.stop_time.is_(None)
     ).first()
 
 
-async def update_breakdown(machine_name:str,line:str,db:Session = Depends(get_db)):
-    breakdown_data = await get_breakdown_data_by(machine_name, line,db)
+async def update_breakdown(machine_name: str, line: str, db: Session = Depends(get_db)):
+    breakdown_data = await get_breakdown_data_by(machine_name, line, db)
     if breakdown_data is None:
         raise HTTPException(status_code=404, detail="Breakdown data not found for the given machine, id, and line")
-
 
     stop_time = datetime.now(IST)
     breakdown_data.stop_time = stop_time
@@ -137,8 +145,8 @@ async def update_breakdown(machine_name:str,line:str,db:Session = Depends(get_db
     db.refresh(breakdown_data)
     return breakdown_data
 
-async def get_machine_breakdown_data(db: Session, machine_name: str, line: str):
 
+async def get_machine_breakdown_data(db: Session, machine_name: str, line: str):
     result = db.query(models.BreakdownData).filter(
         models.BreakdownData.machine_name == machine_name,
         models.BreakdownData.line == line,
@@ -151,9 +159,7 @@ async def get_machine_breakdown_data(db: Session, machine_name: str, line: str):
     return result
 
 
-
 async def validate_planned_breaks(shift_breaks_dict, start_time: datetime, category: str):
-
     if start_time.tzinfo is None:
         start_time = IST.localize(start_time)
     else:

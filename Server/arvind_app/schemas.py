@@ -1,5 +1,7 @@
 from typing import Union, Optional, Dict, Any
 from datetime import date, datetime, time, timedelta
+from uuid import UUID
+
 from pydantic import BaseModel
 from enum import Enum
 
@@ -119,6 +121,7 @@ class MachineLatestTarget(BaseModel):
 class BreakdownDataBase(BaseModel):
     machine_name: str
     line: str
+    breakdown_po_uuid: str
     reason: Optional[str] = None
     category: Optional[str] = None
 
