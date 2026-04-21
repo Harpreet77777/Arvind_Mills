@@ -2,7 +2,7 @@ from fastapi import Depends, APIRouter
 from .. import schemas, models
 from ..database import SessionLocal
 from datetime import date, datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 from fastapi import HTTPException, status
 from collections import defaultdict
 import logging
@@ -42,6 +42,15 @@ async def get_all_data(page: int = 1, size: int = 10, db: Session = Depends(get_
     offset = (page - 1) * size
     return db.query(models.Quality).order_by(models.Quality.id.desc()).limit(size).offset(offset).all()
 
+@router.get("/get_key_name/{machine_name}")
+async def get_key_name(machine_name:str,line:Optional[str]=None,db:Session = Depends(get_db)):
+    query = db.query(models.HourlyData.key).filter(models.HourlyData.machine_name == machine_name)
+    if line:
+        query = query.filter(models.HourlyData.line == line)
+
+    key_names = query.distinct().all()
+
+    return [key[0] for key in key_names]
 
 @router.post("/create")
 async def create_quality(quality: schemas.QualityCreate, db: Session = Depends(get_db)):

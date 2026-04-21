@@ -14,7 +14,6 @@ from fastapi import Depends, APIRouter
 import pika
 from ..config import settings
 
-
 import logging
 
 log = logging.getLogger("uvicorn")
@@ -132,14 +131,10 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
     if not raw_values:
         raise HTTPException(status_code=400, detail="No raw data payload found")
 
-    current_po = db.query(models.PoData).filter(models.PoData.machine_name == raw_data.machine_name,
-                                                models.PoData.stop_time.is_(None)).order_by(
-        models.PoData.id.desc()).first()
-    if not current_po:
-        raise HTTPException(status_code=403, detail="No Po is running on this machine")
-
-    po_uuid = current_po.po_uuid
     dt_ist = raw_data.time_
+    current_po_time = await get_po_according_to_time(machine_name=raw_data.machine_name, time_=dt_ist, db=db)
+    current_po_data = current_po_time["po_uuid"]
+    po_uuid = current_po_data
     shift_data = await get_shift_details_data(db=db)
     row_date = await calculate_adjusted_date(shift_data["shift_a_start"],
                                              dt_ist)
@@ -195,8 +190,8 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
 
             hourly = models.HourlyData(
                 machine_name=raw_data.machine_name,
-                section=current_po.section,
-                line=current_po.line,
+                section=current_po_time["section"],
+                line=current_po_time["line"],
                 date_=row_date,
                 shift=row_shift,
                 hour=row_hour,
@@ -314,27 +309,21 @@ async def get_shift_by_time(dt: datetime, db: Session = Depends(get_db)):
 
 
 @router.get("/get_po_details/{time_}")
-async def get_po_according_to_time(time_: time, db: Session = Depends(get_db)):
-
-    current_time = datetime.now(IST).time()
-
-    if time_ > current_time:
-        raise HTTPException(status_code=403, detail="Time should not be in the future")
-
-    shift_data = await get_shift_details_data(db=db)
-
-    date_ = await calculate_adjusted_date(shift_data["shift_a_start"],datetime.utcnow() + timedelta(hours=5, minutes=30))
-    input_datetime = datetime.combine(date_, time_)
-
-    po_details = db.query(models.PoData).filter(models.PoData.start_time <= input_datetime,
+async def get_po_according_to_time(machine_name: str, time_: datetime, db: Session = Depends(get_db)):
+    # current_datetime = datetime.now().replace(microsecond=0)
+    # if time_ >= current_datetime:
+    #     raise HTTPException(status_code=403, detail="Time should not be in the future")
+    po_details = db.query(models.PoData).filter(models.PoData.machine_name == machine_name,
+                                                models.PoData.start_time <= time_,
                                                 or_(models.PoData.stop_time == None,
-                                                    models.PoData.stop_time >= input_datetime)
-                                                ).all()
+                                                    models.PoData.stop_time >= time_)
+                                                ).order_by(models.PoData.id.desc()).first()
 
     if not po_details:
         raise HTTPException(status_code=404, detail="No PO is running on this time")
 
-    return po_details
+    return {"po_uuid": po_details.po_uuid, "section": po_details.section, "line": po_details.line}
+
 
 async def receive_message(queue_name, host=settings.HOST, port=settings.PORT, username=settings.USERNAME_,
                           password=settings.PASSWORD):
@@ -365,6 +354,30 @@ async def send_message(body, queue_name, host=settings.HOST, port=settings.PORT,
     connection.close()
     return {"message": f" [x] Sent '{body}' to '{queue_name}'"}
 
+
 @router.post('/send_message')
 async def send_message_to_machine(message: str, machine_name: str):
     return await send_message(body=message, queue_name=machine_name)
+
+
+@router.get("/get_hourly_data_by_po_uuid/{po_uuid}")
+def get_details_by_po_uuid(po_uuid: str, db: Session = Depends(get_db)):
+    results = db.query(models.HourlyData).filter(models.HourlyData.po_uuid == po_uuid).order_by(
+        models.HourlyData.id.asc()).all()
+
+    if not results:
+        raise HTTPException(status_code=404, detail="No data found for this PO UUID")
+
+    return [
+        {
+            "hour": item.hour,
+            "created_at": item.created_at,
+            "updated": item.updated_at,
+            "key": item.key,
+            "key_start": item.key_start,
+            "key_stop": item.key_stop,
+            "difference_value": item.difference_value
+
+        }
+        for item in results
+    ]
