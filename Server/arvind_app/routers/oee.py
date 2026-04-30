@@ -441,12 +441,12 @@ async def _calculate_efficiency(date_: date, shift: schemas.ShiftEnum, machine:s
     availability_data = await _calculate_availability(date_=date_, shift=shift, machine=machine, line=line, db=db)
 
     total_time = availability_data['operating_time']  # in seconds
-    target = math.ceil(total_time / ideal_cycle_time)
+    target = math.ceil(total_time * ideal_cycle_time)
 
     ae = None
     try:
         log.debug(f"efficiency: {ideal_cycle_time},{actual_part}")
-        efficiency = round(((ideal_cycle_time * actual_part) / total_time) * 100, 2)
+        efficiency = round((actual_part / target) * 100, 2)
     except ArithmeticError as ae:
         efficiency = 0
     return {"efficiency": efficiency, 'part_count': actual_part, 'target_count': target,

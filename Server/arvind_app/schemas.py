@@ -15,6 +15,7 @@ class ShiftEnum(str, Enum):
 
 class RunPoBase(BaseModel):
     machine_name: str
+    line:str
     po_number: str
     section: str
     category: str

@@ -35,6 +35,7 @@ async def get_po_data(from_date: date, to_date: date,db:Session = Depends(get_db
                                              models.PoData.stop_time != None).all()
     return [{"po_number": data.po_number,
             "machine_name": data.machine_name,
+            "po_uuid": data.po_uuid,
             "start_time": data.start_time,
             "stop_time": data.stop_time
              }for data in po_data]
@@ -44,22 +45,18 @@ async def get_po_data(from_date: date, to_date: date,db:Session = Depends(get_db
 async def calculate_po_quantity(po_uuid: uuid, db: Session):
     hourly_data = db.query(models.HourlyData).filter(models.HourlyData.po_uuid == po_uuid,
                                                      models.HourlyData.key == "Length").order_by(
-        models.HourlyData.created_at.asc()).all()
+        models.HourlyData.id.desc()).first()
 
-    first_value = hourly_data[0].key_start
-    last_value = hourly_data[-1].key_stop
-    difference = max(0, last_value - first_value)
+    last_value = hourly_data.key_stop
     return {
-        "start_po_length": first_value,
         "last_po_length": last_value,
-        "difference": difference,
     }
 
 
-@router.get("/po_details/{po_number}")
-async def get_po_details(po_number: str, db: Session = Depends(get_db)):
-    po_details = db.query(models.PoData).filter(models.PoData.po_number == po_number,
+@router.get("/po_details/{po_uuid}")
+async def get_po_details(po_uuid: str, db: Session = Depends(get_db)):
+    po_details = db.query(models.PoData).filter(models.PoData.po_uuid == po_uuid,
                                                 models.PoData.stop_time != None).first()
     calculated_length = await calculate_po_quantity(po_uuid=po_details.po_uuid, db=db)
-    return {**po_details.__dict__, "start_po_length": calculated_length["start_po_length"],
-            "last_po_length": calculated_length["last_po_length"], "difference": calculated_length["difference"]}
+    return {**po_details.__dict__,
+            "last_po_length": calculated_length["last_po_length"]}

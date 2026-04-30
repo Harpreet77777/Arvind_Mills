@@ -42,8 +42,9 @@ async def get_all_data(page: int = 1, size: int = 10, db: Session = Depends(get_
     offset = (page - 1) * size
     return db.query(models.Quality).order_by(models.Quality.id.desc()).limit(size).offset(offset).all()
 
+
 @router.get("/get_key_name/{machine_name}")
-async def get_key_name(machine_name:str,line:Optional[str]=None,db:Session = Depends(get_db)):
+async def get_key_name(machine_name: str, line: Optional[str] = None, db: Session = Depends(get_db)):
     query = db.query(models.HourlyData.key).filter(models.HourlyData.machine_name == machine_name)
     if line:
         query = query.filter(models.HourlyData.line == line)
@@ -51,6 +52,7 @@ async def get_key_name(machine_name:str,line:Optional[str]=None,db:Session = Dep
     key_names = query.distinct().all()
 
     return [key[0] for key in key_names]
+
 
 @router.post("/create")
 async def create_quality(quality: schemas.QualityCreate, db: Session = Depends(get_db)):
@@ -84,7 +86,6 @@ async def update_quality_by_id(id_: int, quality_update: schemas.QualityUpdate, 
     return quality_obj
 
 
-
 @router.get("/get_ng_data")
 async def get_ng_data(date_: date, shift: schemas.ShiftEnum, machine_name: str, line: str,
                       db: Session = Depends(get_db)):
@@ -100,31 +101,44 @@ async def get_ng_data(date_: date, shift: schemas.ShiftEnum, machine_name: str, 
     return {"not_ok": total_length or 0}
 
 
+# @router.get("/calculate_quantity")
+# async def calculate_quantity(date_: date, shift: schemas.ShiftEnum, machine_name: str, line: str,
+#                              db: Session = Depends(get_db)):
+#     ng_data = await get_ng_data(date_, shift, machine_name, line, db)
+#     query = db.query(models.HourlyData).filter(models.HourlyData.machine_name == machine_name,
+#                                                models.HourlyData.line == line,
+#                                                models.HourlyData.date_ == date_,
+#                                                models.HourlyData.key == "Length")
+#
+#     if shift != schemas.ShiftEnum.ALL_SHIFT:
+#         query = query.filter(models.HourlyData.shift == shift)
+#
+#     hourly_data = query.order_by(models.HourlyData.created_at.asc()).all()
+#
+#     if not hourly_data:
+#         return {"ok": 0, "not_ok": ng_data["not_ok"]}
+#
+#     first_value = hourly_data[0].key_start
+#     last_value = hourly_data[-1].key_stop
+#     difference = max(0, last_value - first_value)
+#     return {
+#         "ok": difference,
+#         "not_ok": ng_data["not_ok"]
+#     }
+
 @router.get("/calculate_quantity")
 async def calculate_quantity(date_: date, shift: schemas.ShiftEnum, machine_name: str, line: str,
                              db: Session = Depends(get_db)):
     ng_data = await get_ng_data(date_, shift, machine_name, line, db)
-    query = db.query(models.HourlyData).filter(models.HourlyData.machine_name == machine_name,
-                                               models.HourlyData.line == line,
-                                               models.HourlyData.date_ == date_,
-                                               models.HourlyData.key == "Length")
+    latest_records = await get_unique_po_uuid(date_, machine_name, line, shift, db)
 
-    if shift != schemas.ShiftEnum.ALL_SHIFT:
-        query = query.filter(models.HourlyData.shift == shift)
+    total_quantity = sum([
+        row.key_stop for row in latest_records if row.key_stop
+    ])
 
-    hourly_data = query.order_by(models.HourlyData.created_at.asc()).all()
-
-    if not hourly_data:
-        return {"ok": 0, "not_ok": ng_data["not_ok"]}
-
-    first_value = hourly_data[0].key_start
-    last_value = hourly_data[-1].key_stop
-    difference = max(0, last_value - first_value)
     return {
-        "ok": difference,
-        "not_ok": ng_data["not_ok"]
-    }
-
+        "ok": total_quantity,
+        "not_ok": ng_data["not_ok"]}
 
 @router.get("/get_quality/{from_date}/{to_date}")
 async def get_quality_data(from_date: date, to_date: date, page: int = 1, size: int = 10,
@@ -137,6 +151,7 @@ async def get_quality_data(from_date: date, to_date: date, page: int = 1, size: 
                                            models.Quality.date_ <= to_date).order_by(models.Quality.id.desc()).limit(
         size).offset(offset).all()
 
+
 @router.delete("/delete/{id_}")
 async def delete_by_id(id_: int, db: Session = Depends(get_db)):
     db_product = db.get(models.Quality, id_)
@@ -146,3 +161,30 @@ async def delete_by_id(id_: int, db: Session = Depends(get_db)):
     db.execute(delete_data)
     db.commit()
     return {"detail": "Data deleted successfully"}
+
+
+async def get_unique_po_uuid(date_: date, machine_name: str, line: str, shift: schemas.ShiftEnum,
+                             db: Session = Depends(get_db)):
+    # Step 1: Get distinct po_uuid with filters
+    po_uuid = db.query(models.HourlyData.po_uuid).filter(models.HourlyData.date_ == date_).distinct().all()
+
+    po_uuid = [name[0] for name in po_uuid]
+
+    latest_records = []
+
+    for po in po_uuid:
+        record = db.query(models.HourlyData).filter(models.HourlyData.date_ == date_,
+                                                    models.HourlyData.po_uuid == po,
+                                                    models.HourlyData.machine_name == machine_name,
+                                                    models.HourlyData.line == line,
+                                                    models.HourlyData.key == "Length")
+
+        if shift != schemas.ShiftEnum.ALL_SHIFT:
+            record = record.filter(models.HourlyData.shift == shift)
+
+        record = record.order_by(models.HourlyData.id.desc()).first()
+
+        if record:
+            latest_records.append(record)
+
+    return latest_records
