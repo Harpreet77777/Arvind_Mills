@@ -123,6 +123,42 @@ def _get_shift_for_time(db: Session, dt: datetime):
 
     if not current_shift_data:
         return "No_shift_data"
+    # ? Convert UTC ? IST
+    now_utc = datetime.utcnow()
+    now_ist = dt
+    now_time = now_ist.time()
+
+    shift = None
+
+    # ---------------- SHIFT A ----------------
+    if current_shift_data.shift_a_start and current_shift_data.shift_a_end:
+        a_start = current_shift_data.shift_a_start.time()
+        a_end = current_shift_data.shift_a_end.time()
+
+        if is_in_shift(a_start, a_end, now_time):
+            shift = "A"
+
+    # ---------------- SHIFT B ----------------
+    if not shift and current_shift_data.shift_b_start and current_shift_data.shift_b_end:
+        b_start = current_shift_data.shift_b_start.time()
+        b_end = current_shift_data.shift_b_end.time()
+
+        if is_in_shift(b_start, b_end, now_time):
+            shift = "B"
+
+    # ---------------- SHIFT C ----------------
+    if not shift and current_shift_data.shift_c_start and current_shift_data.shift_c_end:
+        c_start = current_shift_data.shift_c_start.time()
+        c_end = current_shift_data.shift_c_end.time()
+
+        if is_in_shift(c_start, c_end, now_time):
+            shift = "C"
+
+    # ? Default fallback
+    if not shift:
+        shift = "No_shift_data"
+
+    return shift
 
 
 @router.post("/send_data/")
