@@ -5,7 +5,7 @@ from .database import SessionLocal, engine
 
 import logging
 from .routers import (backend, planned_break, shift_data, operation_master, target, breakdown, oee, quality_analysis,
-                      analytics)
+                      analytics,report)
 
 log = logging.getLogger("uvicorn")
 log.setLevel(logging.INFO)
@@ -45,3 +45,4 @@ app.include_router(breakdown.router)
 app.include_router(oee.router)
 app.include_router(quality_analysis.router)
 app.include_router(analytics.router)
+app.include_router(report.router)

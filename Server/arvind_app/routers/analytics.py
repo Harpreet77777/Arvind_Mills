@@ -29,17 +29,17 @@ def get_db():
 
 router = APIRouter(tags=["Analytics"])
 
-@router.get("/get_po_data/{from_date}/{to_date}")
-async def get_po_data(from_date: date, to_date: date,db:Session = Depends(get_db)):
-    po_data = db.query(models.PoData).filter(models.PoData.date_.between(from_date,to_date),
-                                             models.PoData.stop_time != None).all()
-    return [{"po_number": data.po_number,
-            "machine_name": data.machine_name,
-            "po_uuid": data.po_uuid,
-            "start_time": data.start_time,
-            "stop_time": data.stop_time
-             }for data in po_data]
 
+@router.get("/get_po_data/{from_date}/{to_date}")
+async def get_po_data(from_date: date, to_date: date, db: Session = Depends(get_db)):
+    po_data = db.query(models.PoData).filter(models.PoData.date_.between(from_date, to_date),
+                                             models.PoData.stop_time != None).order_by(models.PoData.id.asc()).all()
+    return [{"po_number": data.po_number,
+             "machine_name": data.machine_name,
+             "po_uuid": data.po_uuid,
+             "start_time": data.start_time,
+             "stop_time": data.stop_time
+             } for data in po_data]
 
 
 async def calculate_po_quantity(po_uuid: uuid, db: Session):

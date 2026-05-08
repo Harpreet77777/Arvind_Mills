@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from datetime import date, datetime, timedelta, time
 from .. import schemas, models
 from . import shift_data
-from . shift_data import get_shift_details_data
+from .shift_data import get_shift_details_data
 from .quality_analysis import calculate_quantity
 from ..database import SessionLocal
 from typing import Tuple, Dict, Any
@@ -70,6 +70,7 @@ async def get_shift_timings(db: Session):
 async def initialize_shift_timings_api(db: Session = Depends(get_db)):
     return await get_shift_timings(db)
 
+
 @router.get("/calculate_availability/")
 async def calculate_availability(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                                  db: Session = Depends(get_db)):
@@ -77,25 +78,26 @@ async def calculate_availability(date_: date, shift: schemas.ShiftEnum, machine:
 
 
 @router.get("/calculate_efficiency/")
-async def calculate_efficiency(date_: date, shift: schemas.ShiftEnum, machine:str, line: str,
+async def calculate_efficiency(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                                db: Session = Depends(get_db)):
     return await _calculate_efficiency(date_, shift, machine, line, db)
 
+
 @router.get("/calculate_quality/")
-async def calculate_quality(date_: date, shift: schemas.ShiftEnum, machine:str, line: str,
+async def calculate_quality(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                             db: Session = Depends(get_db)):
     return await _calculate_quality(date_, shift, machine, line, db)
 
 
 @router.get("/calculate_oee/")
-async def calculate_oee(date_: date, shift: schemas.ShiftEnum, machine:str, line: str,
+async def calculate_oee(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                         db: Session = Depends(get_db)):
     quality_results = await _calculate_oee(date_, shift, machine, line, db)
     return quality_results
 
 
 @router.post("/calculate_part_count/")
-async def calculate_part_count(date_: date, shift: schemas.ShiftEnum, machine:str, line: str,
+async def calculate_part_count(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                                db: Session = Depends(get_db)):
     availability_results = await calculate_quantity(date_, shift, machine, line, db)
     return availability_results
@@ -150,7 +152,7 @@ async def calc_availability(date_: date, shift: schemas.ShiftEnum, machine: str,
             }]
         elif shift == schemas.ShiftEnum.B:
             shift_start_time = datetime.combine(date_, shift_timings[shift][0])
-            shift_stop_time = datetime.combine(date_, shift_timings[shift][1])
+            shift_stop_time = datetime.combine(date_ + timedelta(days=1), shift_timings[shift][1])
             total_time = [{'start_time': shift_start_time.strftime("%Y-%m-%d %H:%M:%S"),
                            'stop_time': shift_stop_time.strftime("%Y-%m-%d %H:%M:%S"),
                            'duration': (shift_stop_time - shift_start_time).total_seconds()}]
@@ -332,7 +334,8 @@ async def cal_current_date_shift(db: Session, date_: date, shift: schemas.ShiftE
 
     return current_date == date_ and current_shift == shift
 
-async def get_aggregated_downtimes(date_: date, shift: schemas.ShiftEnum, machine:str, line: str,
+
+async def get_aggregated_downtimes(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                                    db: Session):
     # machine_id = await crud.get_machine_id(machine_name=e_params.machine, db=db)
     if shift == "ALL_SHIFT":
@@ -379,7 +382,7 @@ async def get_aggregated_downtimes(date_: date, shift: schemas.ShiftEnum, machin
     return combined_downtime
 
 
-async def get_earliest_target_data(machine:str, line: str, db: Session) -> dict:
+async def get_earliest_target_data(machine: str, line: str, db: Session) -> dict:
     """Get the earliest target record for a given machine and line."""
     fallback_record = db.query(models.TargetRecord).filter(
         models.TargetRecord.machine == machine,
@@ -396,11 +399,11 @@ async def get_earliest_target_data(machine:str, line: str, db: Session) -> dict:
     }
 
 
-async def get_target_data_by_machine(machine:str, line: str, date_: date = None,
+async def get_target_data_by_machine(machine: str, line: str, date_: date = None,
                                      db: Session = Depends(get_db)):
     # First try to get the most recent record matching the criteria
     query = db.query(models.TargetRecord).filter(models.TargetRecord.machine == machine,
-                                                  models.TargetRecord.line == line)
+                                                 models.TargetRecord.line == line)
 
     if date_:
         query = query.filter(models.TargetRecord.date_ <= date_)
@@ -417,9 +420,8 @@ async def get_target_data_by_machine(machine:str, line: str, date_: date = None,
     }
 
 
-async def _calculate_efficiency(date_: date, shift: schemas.ShiftEnum, machine:str, line: str,
+async def _calculate_efficiency(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                                 db: Session = Depends(get_db)):
-
     # For ALL_SHIFT, sum over A, B, and C
     if shift == schemas.ShiftEnum.ALL_SHIFT:  # import here if not globally done
         result = await calculate_quantity(date_, shift, machine, line, db)
@@ -453,7 +455,7 @@ async def _calculate_efficiency(date_: date, shift: schemas.ShiftEnum, machine:s
             'ideal_cycle_time': ideal_cycle_time, 'operating_time': total_time}
 
 
-async def _calculate_oee(date_: date, shift: schemas.ShiftEnum, machine:str, line: str,
+async def _calculate_oee(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                          db: Session = Depends(get_db)):
     if not date_ or not shift or not machine or not line:
         availability_data = {
@@ -492,7 +494,7 @@ async def _calculate_oee(date_: date, shift: schemas.ShiftEnum, machine:str, lin
     }
 
 
-async def _calculate_quality(date_: date, shift: schemas.ShiftEnum, machine:str, line: str,
+async def _calculate_quality(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
                              db: Session):
     result = await calculate_quantity(date_, shift, machine, line, db)
     total_ok = result["ok"]
@@ -513,7 +515,7 @@ async def _calculate_quality(date_: date, shift: schemas.ShiftEnum, machine:str,
 # --------------------------------------------------Target Vs Actual ----------------------------------------------------
 @router.get("/oee_vs_target_vs_actual_date_range/")
 async def oee_vs_target_vs_actual(from_date: date, to_date: date, line: str, shift: schemas.ShiftEnum,
-                                  machine:str, db: Session = Depends(get_db)):
+                                  machine: str, db: Session = Depends(get_db)):
     results = []
     current_date = from_date
 
@@ -576,7 +578,7 @@ async def oee_vs_target_vs_actual(from_date: date, to_date: date, line: str, shi
 
     current_date = from_date
     while current_date <= to_date:
-        used_shift =shift
+        used_shift = shift
         target_data = await _calculate_efficiency(date_=current_date, line=line, shift=used_shift, machine=machine,
                                                   db=db)
         total_target += target_data.get("target_count", 0)
@@ -663,7 +665,7 @@ async def get_actual_production(db: Session, from_date: date,
         )
 
 
-async def get_target_production(from_date: date, to_date: date, line: str, machine:str,
+async def get_target_production(from_date: date, to_date: date, line: str, machine: str,
                                 db: Session) -> Dict[str, Any]:
     # First get the most recent target before the end date
     try:
@@ -779,7 +781,8 @@ async def get_averge_oee_linewise(date_: date, shift: schemas.ShiftEnum, line: s
     quality = 0
     oee = 0
     total = 0
-    machine_list = ["Pole Assembly","Base Assembly", "Smart Screw Tightening", "Force Test Bench","MV", "MT", "Thermal 1",
+    machine_list = ["Pole Assembly", "Base Assembly", "Smart Screw Tightening", "Force Test Bench", "MV", "MT",
+                    "Thermal 1",
                     "Cover Assembly", "Finishing Section", "HV", "QA", "Pick & Pack"]
     for m in machine_list:
         averge_oee = await calculate_oee(date_=date_, shift=shift, machine=m, line=line, db=db)
@@ -792,5 +795,6 @@ async def get_averge_oee_linewise(date_: date, shift: schemas.ShiftEnum, line: s
     if total == 0:
         return {"availability": 0, "efficiency": 0, "quality": 0, "oee": 0}
 
-    return {"date_":date_,"line":line,"availability": round(availability / total, 2), "efficiency": round(efficiency / total, 2),
+    return {"date_": date_, "line": line, "availability": round(availability / total, 2),
+            "efficiency": round(efficiency / total, 2),
             "quality": round(quality / total, 2), "oee": round(oee / total, 2)}
