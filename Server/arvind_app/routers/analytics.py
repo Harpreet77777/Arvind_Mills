@@ -44,15 +44,31 @@ async def get_po_data(from_date: date, to_date: date, db: Session = Depends(get_
 
 async def calculate_key_value(po_uuid: uuid, db: Session):
     hourly_data = db.query(models.HourlyData).filter(models.HourlyData.po_uuid ==po_uuid).order_by(
-        models.HourlyData.id.desc()).all()
+        models.HourlyData.id.asc()).all()
 
     keys_data = {}
+    grouped_keys = {}
 
     for data in hourly_data:
-        # Latest value of each key
-        dynamic_key = f"last_{data.key}"
-        if dynamic_key not in keys_data:
-            keys_data[dynamic_key] = data.key_stop
+        if data.key not in grouped_keys:
+            grouped_keys[data.key] = []
+        grouped_keys[data.key].append(data)
+
+    for key, values in grouped_keys.items():
+        dynamic_key = f"last_{key}"
+        first_value = values[0].key_start
+        last_value = values[-1].key_stop
+        # For Length and Speed → take latest value
+        if key in ["Length", "Speed"]:
+            keys_data[dynamic_key] = last_value
+
+        # For other keys → subtraction
+        else:
+            try:
+                keys_data[dynamic_key] = last_value - first_value
+            except:
+                keys_data[dynamic_key] = None
+
     return keys_data
 
 
