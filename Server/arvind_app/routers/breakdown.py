@@ -1,4 +1,6 @@
 from fastapi import Depends, APIRouter
+
+from .backend import get_current_po
 from .. import schemas, models
 from ..database import SessionLocal
 from datetime import date, datetime, timedelta
@@ -102,17 +104,16 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
             shift_breaks_dict = getattr(planned_data[0], shift_key, {})
             await validate_planned_breaks(shift_breaks_dict, start_time, break_data.category)
 
-    po_check = db.query(models.PoData).filter(models.PoData.machine_name == break_data.machine_name,
-                                              models.PoData.line == break_data.line,
-                                              models.PoData.po_uuid == break_data.breakdown_po_uuid).first()
-    if not po_check:
-        raise HTTPException(status_code=404, detail="this PO is  not found ")
-    if po_check and po_check.stop_time is not None:
-        raise HTTPException(status_code=409,
-                            detail=f"this {po_check.po_number}PO is  already finished at {po_check.stop_time} so you can't start breakdown with this PO")
+
+    current_po = await get_current_po(machine_name =break_data.machine_name ,db=db)
+
+    if not current_po:
+        raise HTTPException(status_code=404,detail="No running PO found")
 
     # Step 5: Create new breakdown record
-    new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=start_time, **break_data.dict())
+    new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=start_time,
+                                         breakdown_po_uuid = current_po.po_uuid,
+                                         **break_data.dict(exclude={"breakdown_po_uuid"}))
     db.add(new_breakdown)
     db.commit()
     db.refresh(new_breakdown)

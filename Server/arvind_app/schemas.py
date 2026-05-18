@@ -122,7 +122,7 @@ class MachineLatestTarget(BaseModel):
 class BreakdownDataBase(BaseModel):
     machine_name: str
     line: str
-    breakdown_po_uuid: str
+    breakdown_po_uuid: Optional[str] = None
     reason: Optional[str] = None
     category: Optional[str] = None
 
