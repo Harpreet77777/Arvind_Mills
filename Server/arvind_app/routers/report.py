@@ -6,8 +6,10 @@ from fastapi.responses import FileResponse
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
-from sqlalchemy import cast, Time, or_, and_
+from sqlalchemy import cast, Time, or_, and_, func
 from datetime import date
+
+from .analytics import calculate_key_value
 from .. import crud, models, schemas
 from ..database import SessionLocal, engine
 import pytz
@@ -44,25 +46,14 @@ async def report(from_date: date, to_date: date, db: Session = Depends(get_db)):
     report_data = []
 
     for item in po_data:
-        hourly_data = db.query(models.HourlyData).filter(models.HourlyData.po_uuid == item.po_uuid).order_by(
-            models.HourlyData.id.desc()).all()
+        keys =await calculate_key_value(db=db, po_uuid=item.po_uuid)
+        # 🔹 Total Breakdown Duration
+        total_breakdown_duration = db.query(func.coalesce(func.sum(models.BreakdownData.duration), 0)).filter(
+            models.BreakdownData.breakdown_po_uuid == item.po_uuid,
+            models.BreakdownData.machine_name == item.machine_name,
+            models.BreakdownData.line == item.line).scalar()
 
-        last_length = None
-        last_speed = None
-
-        # Only process hourly_data if it exists
-        if hourly_data:
-            for data in hourly_data:
-                if data.key == "Length" and last_length is None:
-                    last_length = data.key_stop
-                elif data.key == "Speed" and last_speed is None:
-                    last_speed = data.key_stop
-
-        report_data.append({
-            **item.__dict__,
-            "last_length": last_length,
-            "last_speed": last_speed
-        })
+        report_data.append({**item.__dict__, **keys, "breakdown_duration": total_breakdown_duration})
     return report_data
 
 
@@ -80,8 +71,16 @@ async def generate_history_po_data_report(from_date: date, to_date: date, db: Se
 
         headers = ["date_", "machine_name", "line", "shift", "po_number", "section", "category",
                    "machine_speed", "machine_speed_unit", "operation", "start_time", "stop_time", "duration",
-                   "operator_name", "target_length", "target_unit", "last_length", "last_speed",
-                   "is_partial_gr", "is_complete"]
+                   "operator_name", "target_length", "target_unit"]
+        end_header = ["is_partial_gr", "is_complete"]
+        dynamic_headers = set()
+
+        for item in data:
+            for key in item.keys():
+                if key.startswith("last_"):
+                    dynamic_headers.add(key)
+
+        headers = headers + sorted(dynamic_headers) + end_header
 
         header_fill = PatternFill(start_color="808080", end_color="808080", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
