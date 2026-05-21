@@ -13,6 +13,7 @@ from pathlib import Path
 from fastapi import Depends, APIRouter
 import pika
 from ..config import settings
+from .po_queuing import get_running_po_and_next_po,get_pending_po
 
 import logging
 
@@ -243,7 +244,8 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
             changed.append({"key": key, "action": "created"})
 
     db.commit()
-
+    if raw_data.reset is True:
+        await handle_next_po(raw_data=raw_data, db=db)
     return {
         "status": "success",
         "machine_name": raw_data.machine_name,
@@ -329,13 +331,14 @@ async def get_current_po_parameter(machine_name: str, db: Session = Depends(get_
             "difference": total_difference,
             "record_count": len(rows),
         })
-
+    next_po = await get_pending_po(machine_name, db)
     return {
         "machine_name": machine_name,
         "po_uuid": str(current_po_uuid),
         "status": "success",
         "keys": len(result_data),
         "data": result_data,
+        "next_po": next_po,
     }
 
 
@@ -346,19 +349,49 @@ async def get_shift_by_time(dt: datetime, db: Session = Depends(get_db)):
 
 @router.get("/get_po_details/{time_}")
 async def get_po_according_to_time(machine_name: str, time_: datetime, db: Session = Depends(get_db)):
-    # current_datetime = datetime.now().replace(microsecond=0)
-    # if time_ >= current_datetime:
-    #     raise HTTPException(status_code=403, detail="Time should not be in the future")
     po_details = db.query(models.PoData).filter(models.PoData.machine_name == machine_name,
                                                 models.PoData.start_time <= time_,
                                                 or_(models.PoData.stop_time == None,
                                                     models.PoData.stop_time >= time_)
                                                 ).order_by(models.PoData.id.desc()).first()
+    if po_details:
+        return {"po_uuid": po_details.po_uuid, "section": po_details.section, "line": po_details.line}
 
-    if not po_details:
-        raise HTTPException(status_code=404, detail="No PO is running on this time")
+    # check if any Po is running in queue
+    running_queue_po = await check_running_po(machine_name=machine_name, db=db)
+    if not running_queue_po:
+        check_queue_po =await check_pending_po(machine_name=machine_name, db=db)
+        if not check_queue_po:
+            po_queue = await get_running_po_and_next_po(db=db)
+            if not po_queue["current_po_running"] and not po_queue["next_po"]:
+                await send_message(body="No PO in queue, please Upload new PO", queue_name=machine_name)
+                print("No PO in queue, please Upload new PO")
 
-    return {"po_uuid": po_details.po_uuid, "section": po_details.section, "line": po_details.line}
+            raise HTTPException(status_code=404,detail="No PO is running on this time")
+
+        run_payload = schemas.RunPoBase(
+            machine_name=check_queue_po.machine_name,po_number=check_queue_po.po_number,section=check_queue_po.section,
+            line=check_queue_po.line,category=check_queue_po.category,operation=getattr(check_queue_po, "operation", None),
+            target_length=check_queue_po.target_length,target_unit=getattr(check_queue_po, "target_unit", None),
+            machine_speed=check_queue_po.machine_speed,machine_speed_unit=getattr(check_queue_po, "machine_speed_unit", None))
+
+        # START PO
+        await start_po(po_data=run_payload,db=db)
+
+        # UPDATE STATUS
+        check_queue_po.status = "running"
+
+        db.add(check_queue_po)
+        db.commit()
+        db.refresh(check_queue_po)
+
+        # GET NEWLY STARTED PO
+        po_details = db.query(models.PoData).filter(models.PoData.po_number == check_queue_po.po_number).order_by(models.PoData.id.desc()).first()
+
+        return {"po_uuid": po_details.po_uuid,"section": po_details.section,"line": po_details.line}
+
+    raise HTTPException(status_code=404,detail="No PO is running on this time")
+
 
 
 async def receive_message(queue_name, host=settings.HOST, port=settings.PORT, username=settings.USERNAME_,
@@ -417,3 +450,61 @@ def get_details_by_po_uuid(po_uuid: str, db: Session = Depends(get_db)):
         }
         for item in results
     ]
+
+
+async def handle_next_po(raw_data, db: Session):
+    next_po = db.query(models.PoQueueing).filter(models.PoQueueing.status == "pending").order_by(
+        models.PoQueueing.id.asc()).first()
+
+    po_queue = await get_running_po_and_next_po(db=db)
+
+    await stop_po(machine_name=raw_data.machine_name, is_partial_gr=False, db=db)
+
+    # update status "Done" in Queue
+    if po_queue["current_po_running"]:
+        db_finish_present_po = db.query(models.PoQueueing).filter(
+            models.PoQueueing.po_number == po_queue["current_po_running"],
+            models.PoQueueing.status == "running",
+        ).order_by(models.PoQueueing.id.desc()).first()
+        setattr(db_finish_present_po, "status", "Done")
+        db.add(db_finish_present_po)
+        db.commit()
+
+    if po_queue["next_po"] is None:
+        await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name)
+
+    if not next_po:
+        raise HTTPException(status_code=404, detail="No PO is left in the queue")
+
+    # Build the RunPoBase payload using fields from the PoQueueing row
+    run_payload = schemas.RunPoBase(machine_name=next_po.machine_name, po_number=next_po.po_number,
+                                    section=next_po.section, line=next_po.line, category=next_po.category,
+                                    operation=getattr(next_po, "operation", None), target_length=next_po.target_length,
+                                    target_unit=getattr(next_po, "target_unit", None),
+                                    machine_speed=next_po.machine_speed,
+                                    machine_speed_unit=getattr(next_po, "machine_speed_unit", None),
+                                    )
+    await start_po(po_data=run_payload, db=db)
+
+    # update pending -> running in queue
+    next_po.status = "running"
+    db.add(next_po)
+    db.commit()
+    db.refresh(next_po)
+
+    return {"message": "Next PO started successfully",
+            "next_po": po_queue["next_po"]
+            }
+
+
+async def check_pending_po(machine_name: str, db: Session):
+    return db.query(models.PoQueueing).filter(models.PoQueueing.machine_name == machine_name,
+                                                 models.PoQueueing.status == "pending").order_by(
+        models.PoQueueing.id.asc()).first()
+
+async def check_running_po(machine_name:str,db:Session):
+    return db.query(models.PoQueueing).filter(
+        models.PoQueueing.machine_name == machine_name,
+        models.PoQueueing.status == "running"
+    ).first()
+
