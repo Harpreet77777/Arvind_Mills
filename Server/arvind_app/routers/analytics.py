@@ -55,7 +55,7 @@ async def calculate_key_value(po_uuid: uuid, db: Session):
         grouped_keys[data.key].append(data)
 
     for key, values in grouped_keys.items():
-        dynamic_key = f"last_{key}"
+        dynamic_key = key
         first_value = values[0].key_start
         last_value = values[-1].key_stop
         # For Length and Speed → take latest value
@@ -77,7 +77,7 @@ async def get_po_details(po_uuid: str, db: Session = Depends(get_db)):
     po_details = db.query(models.PoData).filter(models.PoData.po_uuid == po_uuid,
                                                 models.PoData.stop_time != None).first()
     calculated_key = await calculate_key_value(po_uuid=po_details.po_uuid, db=db)
-    return {**po_details.__dict__,**calculated_key}
+    return {**po_details.__dict__,"key":{**calculated_key}}
 
 
 RUNNING = "RUNNING"

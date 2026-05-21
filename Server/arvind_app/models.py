@@ -121,3 +121,22 @@ class Quality(Base):
     key = Column(String,nullable=False)
     value = Column(Float(50))
     value_unit = Column(VARCHAR(50))
+
+class PoQueueing(Base):
+    __tablename__ = "po_queueing"
+
+    id = Column(Integer, primary_key=True)
+    machine_name = Column(VARCHAR(50), nullable=False)
+    section = Column(VARCHAR(50), nullable=True)
+    line = Column(VARCHAR(50), nullable=True)
+    date_ = Column(Date)
+    shift = Column(VARCHAR(1))
+    po_number = Column(VARCHAR(50), nullable=True)
+    category = Column(VARCHAR(50))
+    operation = Column(VARCHAR(20), nullable=True)
+    target_length = Column(Float,nullable=True)
+    target_unit = Column(VARCHAR(50),nullable=True)
+    machine_speed = Column(Float,nullable=True)
+    machine_speed_unit = Column(VARCHAR(50),nullable=True)
+    operator_name = Column(VARCHAR(50),nullable=True)
+    status = Column(VARCHAR(50),default="pending")  # queued, in_progress, completed

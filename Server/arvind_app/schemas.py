@@ -2,6 +2,7 @@ from typing import Union, Optional, Dict, Any
 from datetime import date, datetime, time, timedelta
 from uuid import UUID
 
+from openpyxl.descriptors import Default
 from pydantic import BaseModel
 from enum import Enum
 
@@ -35,6 +36,7 @@ class RawDataBase(BaseModel):
     machine_name: str
     time_: datetime
     normal_data: Dict[str, Any] = Field(default_factory=dict, alias="raw_data")
+    reset : Optional[bool] = False
 
     class Config:
         populate_by_name = True
@@ -169,3 +171,16 @@ class OEEGetPayload(BaseModel):
     shift: ShiftEnum
     line: str
     machine: str
+
+class PoQueueing(BaseModel):
+    machine_name: str
+    line:str
+    po_number: str
+    section: str
+    category: str
+    operation: str
+    target_length: Optional[float | None] = None
+    target_unit: Optional[str | None] = None
+    machine_speed: Optional[float | None] = None
+    machine_speed_unit: Optional[str | None] = None
+    operator_name: Optional[str | None] = None
