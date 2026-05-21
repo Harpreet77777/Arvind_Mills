@@ -331,14 +331,12 @@ async def get_current_po_parameter(machine_name: str, db: Session = Depends(get_
             "difference": total_difference,
             "record_count": len(rows),
         })
-    next_po = await get_pending_po(machine_name, db)
     return {
         "machine_name": machine_name,
         "po_uuid": str(current_po_uuid),
         "status": "success",
         "keys": len(result_data),
         "data": result_data,
-        "next_po": next_po,
     }
 
 
@@ -508,3 +506,20 @@ async def check_running_po(machine_name:str,db:Session):
         models.PoQueueing.status == "running"
     ).first()
 
+
+@router.get("/check_queue_status/check")
+async def check_po_status(db: Session = Depends(get_db)):
+    # Get currently running PO - JOIN PoQueueing with PoData
+    running_po = db.query(models.PoQueueing, models.PoData).join(models.PoData,
+                                                                 models.PoQueueing.po_number == models.PoData.po_number).filter(
+        models.PoQueueing.status == "running",
+        models.PoData.stop_time.is_(None)).first()
+    print(running_po)
+
+    # Get next pending PO from queue
+    next_po= await get_pending_po(machine=running_po.PoQueueing.machine_name, db=db)
+    return {
+        "po_number": running_po[0].po_number if running_po else None,
+        "status": running_po[0].status if running_po else None,
+        "next_po": next_po if next_po else None,
+    }
