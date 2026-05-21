@@ -40,10 +40,11 @@ async def get_all_po_queue_data(page: int = 1, size: int = 10, db: Session = Dep
     return db.query(models.PoQueueing).order_by(models.PoQueueing.id.asc()).offset(offset).limit(size).all()
 
 
-@router.get("/pending/po")
-async def pending_po(page: int = 1, size: int = 10, db: Session = Depends(get_db)):
+@router.get("/pending/po/{machine_name}")
+async def pending_po(machine_name:str,page: int = 1, size: int = 10, db: Session = Depends(get_db)):
     offset = (page - 1) * size
-    return db.query(models.PoQueueing).filter(models.PoQueueing.status == "pending").order_by(
+    return db.query(models.PoQueueing).filter(models.PoQueueing.status == "pending",
+                                              models.PoQueueing.machine_name == machine_name).order_by(
         models.PoQueueing.id.asc()).offset(offset).limit(size).all()
 
 
@@ -85,7 +86,7 @@ async def update_po(id: int, po_queue: schemas.PoQueueing, db: Session = Depends
     return po_data
 
 
-@router.get("/po_by_date")
+@router.get("/po_by_date/{from_date}/{to_date}")
 async def get_po_by_date(from_date: date, to_date: date, shift: str = None, machine: str = None,
                          line: str = None, page: int = 1, size: int = 10, db: Session = Depends(get_db)):
     offset = (page - 1) * size
@@ -116,17 +117,19 @@ async def delete_po(id: int, db: Session = Depends(get_db)):
     return {"message": "PO deleted successfully"}
 
 
-@router.get("/check_running_po_and_next_po")
-async def get_running_po_and_next_po(db: Session = Depends(get_db)):
+@router.get("/check_running_po_and_next_po/{machine_name}")
+async def get_running_po_and_next_po(machine_name,db: Session = Depends(get_db)):
     # Get currently running PO - JOIN PoQueueing with PoData
     running_po = db.query(models.PoQueueing, models.PoData).join(models.PoData,
                                                                  models.PoQueueing.po_number == models.PoData.po_number).filter(
         models.PoQueueing.status == "running",
+        models.PoQueueing.machine_name == machine_name,
         models.PoData.stop_time.is_(None)).first()
     print(running_po)
 
     # Get next pending PO from queue
-    next_po = db.query(models.PoQueueing).filter(models.PoQueueing.status == "pending").order_by(
+    next_po = db.query(models.PoQueueing).filter(models.PoQueueing.status == "pending",
+                                                 models.PoQueueing.machine_name == machine_name).order_by(
         models.PoQueueing.id.asc()).first()
     return {
         "current_po_running": running_po[0].po_number if running_po else None,
@@ -139,6 +142,5 @@ async def get_pending_po(machine, db: Session):
     pending_po = db.query(models.PoQueueing).filter(models.PoQueueing.status == "pending",
                                                     models.PoQueueing.machine_name == machine).order_by(
         models.PoQueueing.id.asc()).all()
-    return [{ "po_number": po.po_number if po.po_number else None}
-                           for po in pending_po]
+    return [po.po_number for po in pending_po] if pending_po else None
 

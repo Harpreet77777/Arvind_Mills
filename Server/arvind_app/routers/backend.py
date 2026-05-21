@@ -180,7 +180,8 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
     row_shift = _get_shift_for_time(db=db, dt=raw_data.time_)
     print(row_shift, row_hour, row_date, dt_ist)
     # No_shift_data 16 2026 - 04 - 09 2026 - 04 - 09 16: 59:51.889000 + 05: 30
-
+    if raw_data.reset is True:
+        await handle_next_po(raw_data=raw_data, db=db)
     changed = []
     now = datetime.utcnow() + timedelta(hours=5, minutes=30)
 
@@ -244,8 +245,6 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
             changed.append({"key": key, "action": "created"})
 
     db.commit()
-    if raw_data.reset is True:
-        await handle_next_po(raw_data=raw_data, db=db)
     return {
         "status": "success",
         "machine_name": raw_data.machine_name,
@@ -360,7 +359,7 @@ async def get_po_according_to_time(machine_name: str, time_: datetime, db: Sessi
     if not running_queue_po:
         check_queue_po =await check_pending_po(machine_name=machine_name, db=db)
         if not check_queue_po:
-            po_queue = await get_running_po_and_next_po(db=db)
+            po_queue = await get_running_po_and_next_po(machine_name=machine_name,db=db)
             if not po_queue["current_po_running"] and not po_queue["next_po"]:
                 await send_message(body="No PO in queue, please Upload new PO", queue_name=machine_name)
                 print("No PO in queue, please Upload new PO")
@@ -454,7 +453,7 @@ async def handle_next_po(raw_data, db: Session):
     next_po = db.query(models.PoQueueing).filter(models.PoQueueing.status == "pending").order_by(
         models.PoQueueing.id.asc()).first()
 
-    po_queue = await get_running_po_and_next_po(db=db)
+    po_queue = await get_running_po_and_next_po(machine_name=raw_data.machine_name,db=db)
 
     await stop_po(machine_name=raw_data.machine_name, is_partial_gr=False, db=db)
 
@@ -507,21 +506,22 @@ async def check_running_po(machine_name:str,db:Session):
     ).first()
 
 
-@router.get("/check_queue_status/check")
-async def check_po_status(db: Session = Depends(get_db)):
+@router.get("/check_po_queue/{machine_name}")
+async def check_po_status(machine_name:str,db: Session = Depends(get_db)):
     # Get currently running PO - JOIN PoQueueing with PoData
     running_po = db.query(models.PoQueueing, models.PoData).join(models.PoData,
                                                                  models.PoQueueing.po_number == models.PoData.po_number).filter(
         models.PoQueueing.status == "running",
+        models.PoQueueing.machine_name == machine_name,
         models.PoData.stop_time.is_(None)).first()
 
     # Get next pending PO from queue
-    next_po= await get_pending_po(machine=running_po[0].machine_name, db=db)
-    if not running_po and not next_po:
-        return {
-            "po_number": None,
-            "status": None,
-            "next_po": None}
+    next_po= await get_pending_po(machine=machine_name, db=db)
+    # if not running_po and not next_po:
+    #     return {
+    #         "po_number": None,
+    #         "status": None,
+    #         "next_po": None}
 
     return {
         "po_number": running_po[0].po_number if running_po else None,
