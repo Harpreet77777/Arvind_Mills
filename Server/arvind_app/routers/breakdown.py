@@ -107,12 +107,9 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
 
     current_po = await get_current_po(machine_name =break_data.machine_name ,db=db)
 
-    if not current_po:
-        raise HTTPException(status_code=404,detail="No running PO found")
-
     # Step 5: Create new breakdown record
     new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=start_time,
-                                         breakdown_po_uuid = current_po.po_uuid,
+                                         breakdown_po_uuid = current_po.po_uuid if current_po else None,
                                          **break_data.dict(exclude={"breakdown_po_uuid"}))
     db.add(new_breakdown)
     db.commit()
