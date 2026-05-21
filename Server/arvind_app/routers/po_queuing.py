@@ -139,6 +139,6 @@ async def get_pending_po(machine, db: Session):
     pending_po = db.query(models.PoQueueing).filter(models.PoQueueing.status == "pending",
                                                     models.PoQueueing.machine_name == machine).order_by(
         models.PoQueueing.id.asc()).all()
-    return [{ "po_number": po.po_number}
+    return [{ "po_number": po.po_number if po.po_number else None}
                            for po in pending_po]
 

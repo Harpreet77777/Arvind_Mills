@@ -514,10 +514,15 @@ async def check_po_status(db: Session = Depends(get_db)):
                                                                  models.PoQueueing.po_number == models.PoData.po_number).filter(
         models.PoQueueing.status == "running",
         models.PoData.stop_time.is_(None)).first()
-    print(running_po)
 
     # Get next pending PO from queue
-    next_po= await get_pending_po(machine=running_po.PoQueueing.machine_name, db=db)
+    next_po= await get_pending_po(machine=running_po[0].machine_name, db=db)
+    if not running_po and not next_po:
+        return {
+            "po_number": None,
+            "status": None,
+            "next_po": None}
+
     return {
         "po_number": running_po[0].po_number if running_po else None,
         "status": running_po[0].status if running_po else None,
