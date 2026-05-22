@@ -131,6 +131,8 @@ class BreakdownDataBase(BaseModel):
 
 class BreakdownDataUpdate(BaseModel):
     reason: Optional[str] = None
+    category: Optional[str] = None
+    type: Optional[str] = None
 
 
 class BreakdownData(BreakdownDataBase):
