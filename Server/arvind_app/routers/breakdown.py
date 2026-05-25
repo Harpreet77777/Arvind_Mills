@@ -18,7 +18,7 @@ log_level = logging.INFO
 FORMAT = '%(asctime)-15s %(levelname)-8s %(module)-15s:%(lineno)-8s %(message)s'
 
 logFormatter = logging.Formatter(FORMAT)
-log = logging.getLogger("Store")
+log = logging.getLogger("Breakdown")
 
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(logFormatter)
@@ -59,10 +59,28 @@ async def create_breakdown(break_data: schemas.BreakdownDataBase, db: Session = 
     return await start_breakdown_data(db=db, break_data=break_data)
 
 
-@router.post("/update_breakdown_data/{machine_name}/{line}")
-async def update_breakdown_data(machine_name: str, line: str,
-                                db: Session = Depends(get_db)):
-    return await update_breakdown(machine_name=machine_name, line=line, db=db)
+@router.post("/stop_breakdown_data/{machine_name}/{line}")
+async def stop_breakdown_data(machine_name: str, line: str,
+                              db: Session = Depends(get_db)):
+    return await stop_breakdown(machine_name=machine_name, line=line, db=db)
+
+
+@router.post("/update_breakdown_data/{id_}")
+async def update_breakdown_data(id_: int, break_data: schemas.BreakdownDataUpdate, db: Session = Depends(get_db)):
+    try:
+        db_break = db.get(models.BreakdownData, id_)
+        if not db_break:
+            raise HTTPException(status_code=404, detail="Data not found")
+        for key, value in break_data.dict(exclude_unset=True).items():
+            setattr(db_break, key, value)
+        db.add(db_break)
+        db.commit()
+        db.refresh(db_break)
+        return db_break
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{e}")
 
 
 @router.delete("/{id_}/")
@@ -104,12 +122,11 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
             shift_breaks_dict = getattr(planned_data[0], shift_key, {})
             await validate_planned_breaks(shift_breaks_dict, start_time, break_data.category)
 
-
-    current_po = await get_current_po(machine_name =break_data.machine_name ,db=db)
+    current_po = await get_current_po(machine_name=break_data.machine_name, db=db)
 
     # Step 5: Create new breakdown record
     new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=start_time,
-                                         breakdown_po_uuid = current_po.po_uuid if current_po else None,
+                                         breakdown_po_uuid=current_po.po_uuid if current_po else None,
                                          **break_data.dict(exclude={"breakdown_po_uuid"}))
     db.add(new_breakdown)
     db.commit()
@@ -124,7 +141,7 @@ async def get_breakdown_data_by(machine_name: str, line: str, db: Session = Depe
     ).first()
 
 
-async def update_breakdown(machine_name: str, line: str, db: Session = Depends(get_db)):
+async def stop_breakdown(machine_name: str, line: str, db: Session = Depends(get_db)):
     breakdown_data = await get_breakdown_data_by(machine_name, line, db)
     if breakdown_data is None:
         raise HTTPException(status_code=404, detail="Breakdown data not found for the given machine, id, and line")
