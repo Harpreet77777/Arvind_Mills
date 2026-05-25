@@ -106,8 +106,7 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
         models.BreakdownData.machine_name == break_data.machine_name,
         models.BreakdownData.line == break_data.line, models.BreakdownData.stop_time.is_(None)).first()
     if existing_breakdown:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail=f"Breakdown already exists for {break_data.machine_name}")
+        await stop_breakdown(machine_name=break_data.machine_name, line = break_data.line,db=db)
 
     # Step 4: Fetch planned break data for the machine
     planned_data = db.query(models.PlannedBreakData).filter(
