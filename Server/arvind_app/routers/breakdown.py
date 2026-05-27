@@ -98,7 +98,8 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
     # try:
     start_time = datetime.now(IST)
     shift_data = await get_shift_details_data(db=db)
-    date_ = await calculate_adjusted_date(shift_data["shift_a_start"], datetime.now(IST))
+    date_ = await calculate_adjusted_date(shift_data["shift_a_start"],
+                                          datetime.utcnow() + timedelta(hours=5, minutes=30))
     shift = await get_current_shift_data(db=db)
 
     # Step 3: Check if a breakdown already exists (still not stopped)
@@ -106,7 +107,7 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
         models.BreakdownData.machine_name == break_data.machine_name,
         models.BreakdownData.line == break_data.line, models.BreakdownData.stop_time.is_(None)).first()
     if existing_breakdown:
-        await stop_breakdown(machine_name=break_data.machine_name, line = break_data.line,db=db)
+        await stop_breakdown(machine_name=break_data.machine_name, line=break_data.line, db=db)
 
     # Step 4: Fetch planned break data for the machine
     planned_data = db.query(models.PlannedBreakData).filter(
@@ -124,7 +125,7 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
     current_po = await get_current_po(machine_name=break_data.machine_name, db=db)
 
     # Step 5: Create new breakdown record
-    new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=start_time,
+    new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=datetime.utcnow() + timedelta(hours=5, minutes=30),
                                          breakdown_po_uuid=current_po.po_uuid if current_po else None,
                                          **break_data.dict(exclude={"breakdown_po_uuid"}))
     db.add(new_breakdown)
@@ -145,19 +146,23 @@ async def stop_breakdown(machine_name: str, line: str, db: Session = Depends(get
     if breakdown_data is None:
         raise HTTPException(status_code=404, detail="Breakdown data not found for the given machine, id, and line")
 
-    stop_time = datetime.now(IST)
-    breakdown_data.stop_time = stop_time
+    db_present_breakdown = db.get(models.BreakdownData, breakdown_data.id)
+    stop_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
     start_time = breakdown_data.start_time
-    if start_time.tzinfo is None:
-        start_time = IST.localize(start_time)
-    else:
-        start_time = start_time.astimezone(IST)
-    if breakdown_data.start_time:
-        duration = (stop_time - start_time).total_seconds()
-        breakdown_data.duration = duration
+    # if start_time.tzinfo is None:
+    #     start_time = IST.localize(start_time)
+    # else:
+    #     start_time = start_time.astimezone(IST)
+    # if breakdown_data.start_time:
+    #     duration = (stop_time - start_time).total_seconds()
+    #     breakdown_data.duration = duration
+    duration = (stop_time - start_time).total_seconds()
+    setattr(db_present_breakdown, "stop_time", stop_time)
+    setattr(db_present_breakdown, "duration", duration)
+    db.add(db_present_breakdown)
     db.commit()
-    db.refresh(breakdown_data)
-    return breakdown_data
+    db.refresh(db_present_breakdown)
+    return db_present_breakdown
 
 
 async def get_machine_breakdown_data(db: Session, machine_name: str, line: str):
@@ -174,17 +179,15 @@ async def get_machine_breakdown_data(db: Session, machine_name: str, line: str):
 
 
 async def validate_planned_breaks(shift_breaks_dict, start_time: datetime, category: str):
-    if start_time.tzinfo is None:
-        start_time = IST.localize(start_time)
-    else:
-        start_time = start_time.astimezone(IST)
+    if start_time.tzinfo is not None:
+        start_time = (start_time.astimezone().replace(tzinfo=None))
 
     if isinstance(shift_breaks_dict, dict):
         for planned_name, (start_str, duration_min) in shift_breaks_dict.items():
             try:
                 start_time_obj = datetime.strptime(start_str, "%H:%M:%S").time()
-                now_local = datetime.now(IST)
-                break_start_dt = IST.localize(datetime.combine(now_local.date(), start_time_obj))
+                now_local = datetime.utcnow() + timedelta(hours=5, minutes=30)
+                break_start_dt = datetime.combine(now_local.date(), start_time_obj)
                 break_end_dt = break_start_dt + timedelta(minutes=duration_min)
                 if break_start_dt <= start_time <= break_end_dt:
                     raise HTTPException(
