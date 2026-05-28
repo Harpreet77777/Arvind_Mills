@@ -1,3 +1,4 @@
+from optparse import check_choice
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from sqlalchemy import cast, Time, or_, and_
 from datetime import date, datetime, timedelta, time
+
+from .breakdown import get_present_breakdown_data, create_breakdown
 from ..routers.shift_data import get_current_shift_data, get_shift_details_data, calculate_adjusted_date
 from .. import crud, models, schemas
 from ..database import SessionLocal, engine
@@ -15,7 +18,7 @@ from pathlib import Path
 from fastapi import Depends, APIRouter
 import pika
 from ..config import settings
-from .po_queuing import get_running_po_and_next_po,get_pending_po
+from .po_queuing import get_running_po_and_next_po, get_pending_po
 
 import logging
 
@@ -170,7 +173,7 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
     if not raw_values and raw_data.reset is False:
         raise HTTPException(status_code=400, detail="No raw data payload found")
 
-    if raw_data.reset :
+    if raw_data.reset:
         return await handle_next_po(raw_data=raw_data, db=db)
 
     dt_ist = raw_data.time_
@@ -364,8 +367,6 @@ async def get_po_according_to_time(machine_name: str, time_: datetime, db: Sessi
     return {"po_uuid": po_details.po_uuid, "section": po_details.section, "line": po_details.line}
 
 
-
-
 async def receive_message(queue_name, host=settings.HOST, port=settings.PORT, username=settings.USERNAME_,
                           password=settings.PASSWORD):
     credentials = pika.PlainCredentials(username, password)
@@ -425,14 +426,13 @@ def get_details_by_po_uuid(po_uuid: str, db: Session = Depends(get_db)):
 
 
 async def handle_next_po(raw_data, db: Session):
-    next_po = db.query(models.PoQueueing).filter(models.PoQueueing.machine_name==raw_data.machine_name,
+    next_po = db.query(models.PoQueueing).filter(models.PoQueueing.machine_name == raw_data.machine_name,
                                                  models.PoQueueing.status == "pending").order_by(
         models.PoQueueing.id.asc()).first()
 
-    po_queue = await get_running_po_and_next_po(machine_name=raw_data.machine_name,db=db)
+    po_queue = await get_running_po_and_next_po(machine_name=raw_data.machine_name, db=db)
     if not po_queue["current_po_running"] and not po_queue["next_po"]:
         await send_message(body="No PO in queue, please Upload new PO", queue_name=raw_data.machine_name)
-
 
     # update status "Done" in Queue
     if po_queue["current_po_running"]:
@@ -445,14 +445,15 @@ async def handle_next_po(raw_data, db: Session):
         db.add(db_finish_present_po)
         db.commit()
 
-    if po_queue["next_po"] is None:
+    if not po_queue["next_po"] :
         await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name)
 
     if next_po:
         # Build the RunPoBase payload using fields from the PoQueueing row
         run_payload = schemas.RunPoBase(machine_name=next_po.machine_name, po_number=next_po.po_number,
                                         section=next_po.section, line=next_po.line, category=next_po.category,
-                                        operation=getattr(next_po, "operation", None), target_length=next_po.target_length,
+                                        operation=getattr(next_po, "operation", None),
+                                        target_length=next_po.target_length,
                                         target_unit=getattr(next_po, "target_unit", None),
                                         machine_speed=next_po.machine_speed,
                                         machine_speed_unit=getattr(next_po, "machine_speed_unit", None),
@@ -464,19 +465,34 @@ async def handle_next_po(raw_data, db: Session):
         db.add(next_po)
         db.commit()
         db.refresh(next_po)
+
+        check_breakdown =  db.query(models.BreakdownData).filter(
+            models.BreakdownData.machine_name == raw_data.machine_name,
+            models.BreakdownData.stop_time.is_(None)
+        ).order_by(models.BreakdownData.id.desc()).first()
+
+        if check_breakdown:
+            check_breakdown_payload = schemas.BreakdownDataBase(machine_name=check_breakdown.machine_name,
+                                                                line=check_breakdown.line,
+                                                                reason=check_breakdown.reason,
+                                                                category=check_breakdown.category
+                                                                )
+            await create_breakdown(break_data=check_breakdown_payload, db=db)
+
         return {"message": f"PO started successfully {next_po.po_number}",
-            "next_po": po_queue["next_po"]
-            }
+                "next_po": po_queue["next_po"]
+                }
     else:
         raise HTTPException(status_code=404, detail="No PO is left in the queue")
 
 
 async def check_pending_po(machine_name: str, db: Session):
     return db.query(models.PoQueueing).filter(models.PoQueueing.machine_name == machine_name,
-                                                 models.PoQueueing.status == "pending").order_by(
+                                              models.PoQueueing.status == "pending").order_by(
         models.PoQueueing.id.asc()).first()
 
-async def check_running_po(machine_name:str,db:Session):
+
+async def check_running_po(machine_name: str, db: Session):
     return db.query(models.PoQueueing).filter(
         models.PoQueueing.machine_name == machine_name,
         models.PoQueueing.status == "running"
@@ -484,7 +500,7 @@ async def check_running_po(machine_name:str,db:Session):
 
 
 @router.get("/check_po_queue/{machine_name}")
-async def check_po_status(machine_name:str,db: Session = Depends(get_db)):
+async def check_po_status(machine_name: str, db: Session = Depends(get_db)):
     # Get currently running PO - JOIN PoQueueing with PoData
     running_po = db.query(models.PoQueueing, models.PoData).join(models.PoData,
                                                                  models.PoQueueing.po_number == models.PoData.po_number).filter(
@@ -493,7 +509,7 @@ async def check_po_status(machine_name:str,db: Session = Depends(get_db)):
         models.PoData.stop_time.is_(None)).first()
 
     # Get next pending PO from queue
-    next_po= await get_pending_po(machine=machine_name, db=db)
+    next_po = await get_pending_po(machine=machine_name, db=db)
     # if not running_po and not next_po:
     #     return {
     #         "po_number": None,

@@ -1,6 +1,6 @@
 from fastapi import Depends, APIRouter
 
-from .backend import get_current_po
+# from .backend import get_current_po
 from .. import schemas, models
 from ..database import SessionLocal
 from datetime import date, datetime, timedelta
@@ -122,7 +122,9 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
             shift_breaks_dict = getattr(planned_data[0], shift_key, {})
             await validate_planned_breaks(shift_breaks_dict, start_time, break_data.category)
 
-    current_po = await get_current_po(machine_name=break_data.machine_name, db=db)
+    current_po = db.query(models.PoData).filter(models.PoData.machine_name == break_data.machine_name,
+                                          models.PoData.stop_time.is_(None)).order_by(
+        models.PoData.id.desc()).first()
 
     # Step 5: Create new breakdown record
     new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=datetime.utcnow() + timedelta(hours=5, minutes=30),
