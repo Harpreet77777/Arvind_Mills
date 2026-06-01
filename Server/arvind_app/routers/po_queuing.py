@@ -48,8 +48,8 @@ async def pending_po(machine_name:str,page: int = 1, size: int = 10, db: Session
         models.PoQueueing.id.asc()).offset(offset).limit(size).all()
 
 
-@router.post("/uplord_po")
-async def uplord_po(po_queue: schemas.PoQueueing, db: Session = Depends(get_db)):
+@router.post("/upload_po")
+async def upload_po(po_queue: schemas.PoQueueing, db: Session = Depends(get_db)):
     shift_data = await get_shift_details_data(db=db)
     date_ = await calculate_adjusted_date(shift_data["shift_a_start"],
                                           datetime.utcnow() + timedelta(hours=5, minutes=30))

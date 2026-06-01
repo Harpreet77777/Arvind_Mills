@@ -445,7 +445,7 @@ async def handle_next_po(raw_data, db: Session):
         db.add(db_finish_present_po)
         db.commit()
 
-    if not po_queue["next_po"] :
+    if not po_queue["next_po"]:
         await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name)
 
     if next_po:
@@ -466,24 +466,22 @@ async def handle_next_po(raw_data, db: Session):
         db.commit()
         db.refresh(next_po)
 
-        check_breakdown =  db.query(models.BreakdownData).filter(
+        check_breakdown = db.query(models.BreakdownData).filter(
             models.BreakdownData.machine_name == raw_data.machine_name,
-            models.BreakdownData.stop_time.is_(None)
-        ).order_by(models.BreakdownData.id.desc()).first()
+            models.BreakdownData.stop_time.is_(None)).order_by(models.BreakdownData.id.desc()).first()
 
         if check_breakdown:
             check_breakdown_payload = schemas.BreakdownDataBase(machine_name=check_breakdown.machine_name,
                                                                 line=check_breakdown.line,
                                                                 reason=check_breakdown.reason,
-                                                                category=check_breakdown.category
-                                                                )
+                                                                category=check_breakdown.category)
             await create_breakdown(break_data=check_breakdown_payload, db=db)
 
         return {"message": f"PO started successfully {next_po.po_number}",
                 "next_po": po_queue["next_po"]
                 }
     else:
-        raise HTTPException(status_code=404, detail="No PO is left in the queue")
+        await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name)
 
 
 async def check_pending_po(machine_name: str, db: Session):
