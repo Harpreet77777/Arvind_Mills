@@ -482,6 +482,7 @@ async def handle_next_po(raw_data, db: Session):
                 }
     else:
         await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name)
+        return("No next PO available in queue")
 
 
 async def check_pending_po(machine_name: str, db: Session):
