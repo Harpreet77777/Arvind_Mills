@@ -1,5 +1,6 @@
 from optparse import check_choice
 from typing import Optional
+import re
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -426,13 +427,14 @@ def get_details_by_po_uuid(po_uuid: str, db: Session = Depends(get_db)):
 
 
 async def handle_next_po(raw_data, db: Session):
+    machine_name = re.sub(r"[-\s]", "", raw_data.machine_name)
     next_po = db.query(models.PoQueueing).filter(models.PoQueueing.machine_name == raw_data.machine_name,
                                                  models.PoQueueing.status == "pending").order_by(
         models.PoQueueing.id.asc()).first()
 
     po_queue = await get_running_po_and_next_po(machine_name=raw_data.machine_name, db=db)
     if not po_queue["current_po_running"] and not po_queue["next_po"]:
-        await send_message(body="No PO in queue, please Upload new PO", queue_name=raw_data.machine_name.replace("-", "").strip())
+        await send_message(body="No PO in queue, please Upload new PO", queue_name=machine_name)
 
     # update status "Done" in Queue
     if po_queue["current_po_running"]:
@@ -446,7 +448,7 @@ async def handle_next_po(raw_data, db: Session):
         db.commit()
 
     if not po_queue["next_po"]:
-        await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name.replace("-", "").strip())
+        await send_message(body="No next PO available in queue", queue_name=machine_name)
 
     if next_po:
         # Build the RunPoBase payload using fields from the PoQueueing row
@@ -481,8 +483,7 @@ async def handle_next_po(raw_data, db: Session):
                 "next_po": po_queue["next_po"]
                 }
     else:
-        await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name.replace("-", "").strip())
-        print("machine_name =", repr(raw_data.machine_name))
+        await send_message(body="No next PO available in queue", queue_name=machine_name)
         return("No next PO available in queue")
 
 
