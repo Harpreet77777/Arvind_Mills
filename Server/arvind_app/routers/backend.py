@@ -432,7 +432,7 @@ async def handle_next_po(raw_data, db: Session):
 
     po_queue = await get_running_po_and_next_po(machine_name=raw_data.machine_name, db=db)
     if not po_queue["current_po_running"] and not po_queue["next_po"]:
-        await send_message(body="No PO in queue, please Upload new PO", queue_name=raw_data.machine_name)
+        await send_message(body="No PO in queue, please Upload new PO", queue_name=raw_data.machine_name.replace("-", "").strip())
 
     # update status "Done" in Queue
     if po_queue["current_po_running"]:
@@ -446,7 +446,7 @@ async def handle_next_po(raw_data, db: Session):
         db.commit()
 
     if not po_queue["next_po"]:
-        await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name)
+        await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name.replace("-", "").strip())
 
     if next_po:
         # Build the RunPoBase payload using fields from the PoQueueing row
@@ -481,7 +481,8 @@ async def handle_next_po(raw_data, db: Session):
                 "next_po": po_queue["next_po"]
                 }
     else:
-        await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name)
+        await send_message(body="No next PO available in queue", queue_name=raw_data.machine_name.replace("-", "").strip())
+        print("machine_name =", repr(raw_data.machine_name))
         return("No next PO available in queue")
 
 
@@ -509,11 +510,6 @@ async def check_po_status(machine_name: str, db: Session = Depends(get_db)):
 
     # Get next pending PO from queue
     next_po = await get_pending_po(machine=machine_name, db=db)
-    # if not running_po and not next_po:
-    #     return {
-    #         "po_number": None,
-    #         "status": None,
-    #         "next_po": None}
 
     return {
         "po_number": running_po[0].po_number if running_po else None,
