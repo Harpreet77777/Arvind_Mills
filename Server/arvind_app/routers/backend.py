@@ -72,7 +72,7 @@ async def get_current_po(machine_name: str, db: Session = Depends(get_db)):
 
 
 @router.post("/stop_po/{machine_name}/{is_partial_gr}")
-async def stop_po(machine_name: str, is_partial_gr: bool = False, db: Session = Depends(get_db)):
+async def stop_po(machine_name: str, is_partial_gr: bool = False,stop_time: Optional[datetime] = None, db: Session = Depends(get_db)):
     # check no po is running then show error
     current_po = db.query(models.PoData).filter(models.PoData.machine_name == machine_name,
                                                 models.PoData.stop_time.is_(None)).order_by(
@@ -82,7 +82,8 @@ async def stop_po(machine_name: str, is_partial_gr: bool = False, db: Session = 
 
     # update stop time and duration
     db_present_po = db.get(models.PoData, current_po.id)
-    stop_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    if not stop_time:
+        stop_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
     start_time = db_present_po.start_time
     # if start_time.tzinfo is None:
     #     start_time = IST.localize(start_time)
@@ -439,7 +440,7 @@ async def handle_next_po(raw_data, db: Session):
 
     # update status "Done" in Queue
     if po_queue["current_po_running"]:
-        await stop_po(machine_name=raw_data.machine_name, is_partial_gr=False, db=db)
+        await stop_po(machine_name=raw_data.machine_name, is_partial_gr=False,stop_time=raw_data.time_, db=db)
         db_finish_present_po = db.query(models.PoQueueing).filter(
             models.PoQueueing.po_number == po_queue["current_po_running"],
             models.PoQueueing.status == "running",
