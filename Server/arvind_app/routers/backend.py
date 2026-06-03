@@ -363,6 +363,7 @@ async def get_po_according_to_time(machine_name: str, time_: datetime, db: Sessi
                                                 ).order_by(models.PoData.id.desc()).first()
 
     if not po_details:
+        await send_message(body="HOOTER_ON", queue_name=machine_name)
         raise HTTPException(status_code=404, detail="No PO is running on this time")
 
     return {"po_uuid": po_details.po_uuid, "section": po_details.section, "line": po_details.line}
@@ -434,7 +435,7 @@ async def handle_next_po(raw_data, db: Session):
 
     po_queue = await get_running_po_and_next_po(machine_name=raw_data.machine_name, db=db)
     if not po_queue["current_po_running"] and not po_queue["next_po"]:
-        await send_message(body="No PO in queue, please Upload new PO", queue_name=machine_name)
+        await send_message(body="HOOTER_ON", queue_name=machine_name)
 
     # update status "Done" in Queue
     if po_queue["current_po_running"]:
@@ -446,9 +447,6 @@ async def handle_next_po(raw_data, db: Session):
         setattr(db_finish_present_po, "status", "Done")
         db.add(db_finish_present_po)
         db.commit()
-
-    if not po_queue["next_po"]:
-        await send_message(body="No next PO available in queue", queue_name=machine_name)
 
     if next_po:
         # Build the RunPoBase payload using fields from the PoQueueing row
@@ -483,7 +481,6 @@ async def handle_next_po(raw_data, db: Session):
                 "next_po": po_queue["next_po"]
                 }
     else:
-        await send_message(body="No next PO available in queue", queue_name=machine_name)
         return("No next PO available in queue")
 
 
