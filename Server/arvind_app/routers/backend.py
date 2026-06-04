@@ -430,13 +430,11 @@ def get_details_by_po_uuid(po_uuid: str, db: Session = Depends(get_db)):
 
 async def handle_next_po(raw_data, db: Session):
     machine_name = re.sub(r"[-\s]", "", raw_data.machine_name)
-    next_po = db.query(models.PoQueueing).filter(models.PoQueueing.machine_name == raw_data.machine_name,
-                                                 models.PoQueueing.status == "pending").order_by(
-        models.PoQueueing.id.asc()).first()
 
     po_queue = await get_running_po_and_next_po(machine_name=raw_data.machine_name, db=db)
     if not po_queue["current_po_running"] and not po_queue["next_po"]:
         await send_message(body="HOOTER_ON", queue_name=machine_name)
+        return {"message": "No PO running and no next PO in queue", "next_po": None}
 
     # update status "Done" in Queue
     if po_queue["current_po_running"]:
@@ -447,8 +445,10 @@ async def handle_next_po(raw_data, db: Session):
         ).order_by(models.PoQueueing.id.desc()).first()
         setattr(db_finish_present_po, "status", "Done")
         db.add(db_finish_present_po)
-        db.commit()
 
+    next_po = db.query(models.PoQueueing).filter(models.PoQueueing.machine_name == raw_data.machine_name,
+                                                 models.PoQueueing.status == "pending").order_by(
+        models.PoQueueing.id.asc()).first()
     if next_po:
         # Build the RunPoBase payload using fields from the PoQueueing row
         run_payload = schemas.RunPoBase(machine_name=next_po.machine_name, po_number=next_po.po_number,
@@ -482,7 +482,8 @@ async def handle_next_po(raw_data, db: Session):
                 "next_po": po_queue["next_po"]
                 }
     else:
-        return("No next PO available in queue")
+        await send_message(body="HOOTER_ON", queue_name=machine_name)
+        return {"message": "No next PO available in queue", "next_po": None}
 
 
 async def check_pending_po(machine_name: str, db: Session):
