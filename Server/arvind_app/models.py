@@ -48,6 +48,7 @@ class HourlyData(Base):
     key_start = Column(Float)
     key_stop = Column(Float)
     difference_value = Column(Float)
+    sender_time = Column(DateTime , nullable=True)
 
 
 class ShiftMaster(Base):

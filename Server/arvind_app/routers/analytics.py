@@ -78,7 +78,7 @@ async def calculate_key_value(po_uuid: uuid, db: Session):
                 start_time = first_entry.created_at
                 end_time = last_entry.updated_at
                 if start_time and end_time and end_time > start_time:
-                    duration = (end_time - start_time).total_seconds()
+                    duration = ((end_time - start_time).total_seconds()/60)
                     total_length = last_entry.key_stop or 0
 
                     keys_data["average_speed"] = round(total_length / duration, 2) if duration > 0 else 0.0

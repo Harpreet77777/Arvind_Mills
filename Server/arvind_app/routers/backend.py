@@ -41,7 +41,7 @@ router = APIRouter(tags=["Backend"])
 
 
 @router.post("/start_po/")
-async def start_po(po_data: schemas.RunPoBase, db: Session = Depends(get_db)):
+async def start_po(po_data: schemas.RunPoBase, start_time:datetime, db: Session = Depends(get_db)):
     # check if prev po is running then show error
     prv_po = db.query(models.PoData).filter(models.PoData.machine_name == po_data.machine_name,
                                             models.PoData.stop_time.is_(None)).order_by(
@@ -54,9 +54,8 @@ async def start_po(po_data: schemas.RunPoBase, db: Session = Depends(get_db)):
                                           datetime.utcnow() + timedelta(hours=5, minutes=30))
     shift = await get_current_shift_data(db=db)
 
-    db_po = models.PoData(**po_data.dict(),
-                          date_=date_, shift=shift['shift'],
-                          start_time=datetime.utcnow() + timedelta(hours=5, minutes=30), po_uuid=uuid.uuid4()
+    db_po = models.PoData(**po_data.dict(), date_=date_, shift=shift['shift'],
+                          start_time=start_time, po_uuid=uuid.uuid4()
                           )
     db.add(db_po)
     db.commit()
@@ -72,7 +71,8 @@ async def get_current_po(machine_name: str, db: Session = Depends(get_db)):
 
 
 @router.post("/stop_po/{machine_name}/{is_partial_gr}")
-async def stop_po(machine_name: str, is_partial_gr: bool = False,stop_time: Optional[datetime] = None, db: Session = Depends(get_db)):
+async def stop_po(machine_name: str, is_partial_gr: bool = False, stop_time: Optional[datetime] = None,
+                  db: Session = Depends(get_db)):
     # check no po is running then show error
     current_po = db.query(models.PoData).filter(models.PoData.machine_name == machine_name,
                                                 models.PoData.stop_time.is_(None)).order_by(
@@ -215,6 +215,7 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
             existing.key_stop = float_value
             existing.difference_value = existing.key_stop - existing.key_start
             existing.updated_at = now
+            existing.sender_time = raw_data.time_
             db.add(existing)
             changed.append({"key": key, "action": "updated"})
         else:
@@ -248,6 +249,7 @@ async def send_raw_data(raw_data: schemas.RawDataBase, db: Session = Depends(get
                 key_start=key_start_value,
                 key_stop=float_value,
                 difference_value=float_value - key_start_value,
+                sender_time=raw_data.time_
             )
             db.add(hourly)
             changed.append({"key": key, "action": "created"})
@@ -438,7 +440,7 @@ async def handle_next_po(raw_data, db: Session):
 
     # update status "Done" in Queue
     if po_queue["current_po_running"]:
-        await stop_po(machine_name=raw_data.machine_name, is_partial_gr=False,stop_time=raw_data.time_, db=db)
+        await stop_po(machine_name=raw_data.machine_name, is_partial_gr=False, stop_time=raw_data.time_, db=db)
         db_finish_present_po = db.query(models.PoQueueing).filter(
             models.PoQueueing.po_number == po_queue["current_po_running"],
             models.PoQueueing.status == "running",
@@ -459,7 +461,7 @@ async def handle_next_po(raw_data, db: Session):
                                         machine_speed=next_po.machine_speed,
                                         machine_speed_unit=getattr(next_po, "machine_speed_unit", None),
                                         )
-        await start_po(po_data=run_payload, db=db)
+        await start_po(po_data=run_payload, start_time=raw_data.time_, db=db)
 
         # update pending -> running in queue
         next_po.status = "running"
