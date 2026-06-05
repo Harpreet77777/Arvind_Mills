@@ -458,7 +458,7 @@ async def handle_next_po(raw_data, db: Session):
                                         operation=getattr(next_po, "operation", None),
                                         target_length=next_po.target_length,
                                         target_unit=getattr(next_po, "target_unit", None),
-                                        machine_speed=next_po.machine_speed,
+                                        machine_speed=next_po.machine_speed,operator_name=next_po.operator_name,
                                         machine_speed_unit=getattr(next_po, "machine_speed_unit", None),
                                         )
         await start_po(po_data=run_payload, start_time=raw_data.time_, db=db)

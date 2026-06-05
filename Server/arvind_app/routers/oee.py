@@ -172,12 +172,11 @@ async def calc_availability(date_: date, shift: schemas.ShiftEnum, machine: str,
     log.debug(f"total time:{total_time}")
     initial_total_time = copy.deepcopy(total_time)
 
-    planned_breaks = await get_planned_break_by_shift(machine, line, shift, db)
-    subtracted_planned_total_time = subtract_planned_breaks(date_, initial_total_time, planned_breaks)
+    planned_breaks = await get_planned_break_by_shift(date_, shift, machine, line, db)
 
     downtimes = await get_aggregated_downtimes(date_, shift, machine, line, db)
     # planned_downtimes = await get_aggregated_planned_downtimes(date_,shift,machine,line, db)
-    planned_downtimes = total_time[0]['duration'] - subtracted_planned_total_time[0]['duration']
+    planned_downtimes = planned_breaks
 
     operating_time = total_time[0]['duration'] - downtimes - planned_downtimes
     if operating_time < 0:
@@ -186,86 +185,85 @@ async def calc_availability(date_: date, shift: schemas.ShiftEnum, machine: str,
 
 
 # -------------------------------------------------------------------------------------------
-async def get_planned_break_by_shift(machine: str, line: str, shift: schemas.ShiftEnum,
-                                     db: Session = Depends(get_db)):
-    planned_breaks_db = db.query(
-        models.PlannedBreakData.shift_a_planned_break,
-        models.PlannedBreakData.shift_b_planned_break,
-        models.PlannedBreakData.shift_c_planned_break,
-        models.PlannedBreakData.shift_g_planned_break
-    ).filter(models.PlannedBreakData.machine_name == machine,
-             models.PlannedBreakData.line == line).first()
+# async def get_planned_break_by_shift(machine: str, line: str, shift: schemas.ShiftEnum,
+#                                      db: Session = Depends(get_db)):
+#     planned_breaks_db = db.query(
+#         models.PlannedBreakData.shift_a_planned_break,
+#         models.PlannedBreakData.shift_b_planned_break,
+#         models.PlannedBreakData.shift_c_planned_break,
+#         models.PlannedBreakData.shift_g_planned_break
+#     ).filter(models.PlannedBreakData.machine_name == machine,
+#              models.PlannedBreakData.line == line).first()
+#
+#     log.debug(f"planned_break : {planned_breaks_db}")
+#
+#     if planned_breaks_db:
+#         if shift == 'A':
+#             planned_breaks = planned_breaks_db[0]
+#         elif shift == 'B':
+#             planned_breaks = planned_breaks_db[1]
+#         elif shift == 'C':
+#             planned_breaks = planned_breaks_db[2]
+#         elif shift == 'G':
+#             planned_breaks = planned_breaks_db[3]
+#         else:
+#             planned_breaks = merge_dicts_with_suffix(planned_breaks_db)
+#     else:
+#         planned_breaks = {}
+#
+#     log.debug(f"planned_break : {planned_breaks}")
+#     return planned_breaks
 
-    log.debug(f"planned_break : {planned_breaks_db}")
 
-    if planned_breaks_db:
-        if shift == 'A':
-            planned_breaks = planned_breaks_db[0]
-        elif shift == 'B':
-            planned_breaks = planned_breaks_db[1]
-        elif shift == 'C':
-            planned_breaks = planned_breaks_db[2]
-        elif shift == 'G':
-            planned_breaks = planned_breaks_db[3]
-        else:
-            planned_breaks = merge_dicts_with_suffix(planned_breaks_db)
+async def get_planned_break_by_shift(date_: date, shift: schemas.ShiftEnum, machine: str, line: str,
+                                   db: Session):
+    # machine_id = await crud.get_machine_id(machine_name=e_params.machine, db=db)
+    if shift == "ALL_SHIFT":
+        planned_downtimes = db.query(func.sum(models.BreakdownData.duration)
+                                ).filter(models.BreakdownData.date_ == date_,
+                                         models.BreakdownData.machine_name == machine,
+                                         models.BreakdownData.line == line,
+                                         models.BreakdownData.category == "Planned",
+                                         models.BreakdownData.stop_time.isnot(None)
+                                         ).first()
     else:
-        planned_breaks = {}
-
-    log.debug(f"planned_break : {planned_breaks}")
-    return planned_breaks
-
-
-def subtract_planned_breaks(date_, model_periods, planned_break):
-    base_date = date_
-    shift_a_start = time(6, 00, 0, 0)
-    for break_type, break_info in planned_break.items():
-        break_start = datetime.strptime(f"{base_date} {break_info[0]}", "%Y-%m-%d %H:%M:%S")
-
-        # ✅ Use shift_a_start instead of conversions.shift_a_start
-        if break_start < datetime.combine(date_, shift_a_start):
-            break_start = datetime.strptime(
-                f"{base_date + timedelta(days=1)} {break_info[0]}",
-                "%Y-%m-%d %H:%M:%S"
-            )
-
-        break_end = break_start + timedelta(minutes=break_info[1])
-        planned_break[break_type] = [break_start, break_end]
-
-    log.debug(f"Planned breaks with date: {planned_break}")
-
-    updated_model_periods = []
-    for i, period in enumerate(model_periods):
-        start_time = datetime.strptime(period['start_time'], "%Y-%m-%d %H:%M:%S")
-        stop_time = datetime.strptime(period['stop_time'], "%Y-%m-%d %H:%M:%S")
-
-        for break_type, (break_start, break_end) in planned_break.items():
-            if start_time < break_end and stop_time > break_start:
-                overlap_start = max(start_time, break_start)
-                overlap_end = min(stop_time, break_end)
-                overlap_duration = (overlap_end - overlap_start).total_seconds()
-                period['duration'] -= int(overlap_duration)
-
-        updated_model_periods.append(period)
-
-    return updated_model_periods
-
-
-def merge_dicts_with_suffix(dict_list):
-    result = {}
-    key_counts = {}
-
-    for d in dict_list:
-        for key, value in d.items():
-            if key in result:
-                key_counts[key] = key_counts.get(key, 1) + 1
-                new_key = f"{key}_{key_counts[key]}"
-                result[new_key] = value
-            else:
-                result[key] = value
-
-    return result
-
+        planned_downtimes = db.query(func.sum(models.BreakdownData.duration)
+                                ).filter(models.BreakdownData.date_ == date_,
+                                         models.BreakdownData.shift == shift,
+                                         models.BreakdownData.machine_name == machine,
+                                         models.BreakdownData.line == line,
+                                         models.BreakdownData.category == "Planned",
+                                         models.BreakdownData.stop_time.isnot(None)
+                                         ).first()
+    if planned_downtimes[0] is None:
+        close_downtime = 0
+    else:
+        close_downtime = planned_downtimes[0]
+    if shift == "ALL_SHIFT":
+        open_plannedbreak = db.query(models.BreakdownData).filter(models.BreakdownData.date_ == date_,
+                                                               models.BreakdownData.machine_name == machine,
+                                                               models.BreakdownData.line == line,
+                                                               models.BreakdownData.category == "Planned",
+                                                               models.BreakdownData.stop_time.is_(None)
+                                                               ).first()
+    else:
+        open_plannedbreak = db.query(models.BreakdownData).filter(models.BreakdownData.date_ == date_,
+                                                               models.BreakdownData.shift == shift,
+                                                               models.BreakdownData.machine_name == machine,
+                                                               models.BreakdownData.line == line,
+                                                               models.BreakdownData.category == "Planned",
+                                                               models.BreakdownData.stop_time.is_(None)
+                                                               ).first()
+    if open_plannedbreak is None:
+        open_downtime = 0
+    else:
+        stop_time_naive = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        # timezone = pytz.timezone('Asia/Kolkata')
+        # stop_time = timezone.localize(stop_time_naive.replace(tzinfo=None))
+        open_downtime = (stop_time_naive - open_plannedbreak.start_time).total_seconds()
+    combined_downtime = open_downtime + close_downtime
+    log.debug(f"downtimes: {combined_downtime}")
+    return combined_downtime
 
 # -----------------------------------------------------------------------------------
 
@@ -343,6 +341,7 @@ async def get_aggregated_downtimes(date_: date, shift: schemas.ShiftEnum, machin
                                 ).filter(models.BreakdownData.date_ == date_,
                                          models.BreakdownData.machine_name == machine,
                                          models.BreakdownData.line == line,
+                                         models.BreakdownData.category != "Planned",
                                          models.BreakdownData.stop_time.isnot(None)
                                          ).first()
     else:
@@ -351,6 +350,7 @@ async def get_aggregated_downtimes(date_: date, shift: schemas.ShiftEnum, machin
                                          models.BreakdownData.shift == shift,
                                          models.BreakdownData.machine_name == machine,
                                          models.BreakdownData.line == line,
+                                         models.BreakdownData.category != "Planned",
                                          models.BreakdownData.stop_time.isnot(None)
                                          ).first()
     if downtimes_db[0] is None:
@@ -361,6 +361,7 @@ async def get_aggregated_downtimes(date_: date, shift: schemas.ShiftEnum, machin
         open_breakdown = db.query(models.BreakdownData).filter(models.BreakdownData.date_ == date_,
                                                                models.BreakdownData.machine_name == machine,
                                                                models.BreakdownData.line == line,
+                                                               models.BreakdownData.category != "Planned",
                                                                models.BreakdownData.stop_time.is_(None)
                                                                ).first()
     else:
@@ -368,12 +369,13 @@ async def get_aggregated_downtimes(date_: date, shift: schemas.ShiftEnum, machin
                                                                models.BreakdownData.shift == shift,
                                                                models.BreakdownData.machine_name == machine,
                                                                models.BreakdownData.line == line,
+                                                               models.BreakdownData.category != "Planned",
                                                                models.BreakdownData.stop_time.is_(None)
                                                                ).first()
     if open_breakdown is None:
         open_downtime = 0
     else:
-        stop_time_naive = datetime.utcnow()
+        stop_time_naive = datetime.utcnow() + timedelta(hours=5, minutes=30)
         # timezone = pytz.timezone('Asia/Kolkata')
         # stop_time = timezone.localize(stop_time_naive.replace(tzinfo=None))
         open_downtime = (stop_time_naive - open_breakdown.start_time).total_seconds()

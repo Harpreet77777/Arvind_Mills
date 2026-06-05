@@ -4,12 +4,12 @@ from fastapi import Depends, APIRouter
 from .. import schemas, models
 from ..database import SessionLocal
 from datetime import date, datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Literal
 from fastapi import HTTPException, status
 from collections import defaultdict
 import logging
 import pytz
-from sqlalchemy import func, case
+from sqlalchemy import func, case, and_, or_
 from sqlalchemy.orm import Session
 from ..routers.shift_data import get_current_shift_data, get_shift_details_data, calculate_adjusted_date
 
@@ -94,6 +94,30 @@ async def delete_breakdown_data(id_: int, db: Session = Depends(get_db)):
     return {"message": "Data deleted successfully"}
 
 
+@router.get("/check_filled_unfilled_breakdown_reason/{machine_name}/{line}")
+async def check_filled_unfilled_breakdown_reason(machine_name: str, line: str,
+                                                 status: Literal['filled', 'unfilled', 'ALL'] = 'ALL', page: int = 1,
+                                                 size: int = 10, db: Session = Depends(get_db)):
+    """
+    Return breakdown records filtered by whether `category` is filled or not.
+    - status = "filled"  => category is not null and not empty
+    - status = "unfilled" => category is null or empty string
+    - status = "ALL" => return all records for this machine+line
+    """
+    offset = (page - 1) * size
+    # Base query for machine and line
+    query = db.query(models.BreakdownData).filter(models.BreakdownData.machine_name == machine_name,
+                                                  models.BreakdownData.line == line)
+    if status == "filled":
+        query = query.filter(models.BreakdownData.category.isnot(None),
+                             models.BreakdownData.reason.isnot(None))
+    elif status == "unfilled":
+        query = query.filter(or_(models.BreakdownData.category.is_(None),
+                                 models.BreakdownData.reason.is_(None)))
+
+    return query.order_by(models.BreakdownData.id.desc()).limit(size).offset(offset).all()
+
+
 async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBase):
     # try:
     start_time = datetime.now(IST)
@@ -123,11 +147,12 @@ async def start_breakdown_data(db: Session, break_data: schemas.BreakdownDataBas
             await validate_planned_breaks(shift_breaks_dict, start_time, break_data.category)
 
     current_po = db.query(models.PoData).filter(models.PoData.machine_name == break_data.machine_name,
-                                          models.PoData.stop_time.is_(None)).order_by(
+                                                models.PoData.stop_time.is_(None)).order_by(
         models.PoData.id.desc()).first()
 
     # Step 5: Create new breakdown record
-    new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'], start_time=datetime.utcnow() + timedelta(hours=5, minutes=30),
+    new_breakdown = models.BreakdownData(date_=date_, shift=shift['shift'],
+                                         start_time=datetime.utcnow() + timedelta(hours=5, minutes=30),
                                          breakdown_po_uuid=current_po.po_uuid if current_po else None,
                                          **break_data.dict(exclude={"breakdown_po_uuid"}))
     db.add(new_breakdown)
